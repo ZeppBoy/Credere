@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Credere.Shared\Credere.Shared.csproj" />
+  </ItemGroup>
+</Project>

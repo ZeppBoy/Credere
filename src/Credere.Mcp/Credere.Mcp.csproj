@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Credere MCP host. Stdio transport. Delegates tool calls to IAiModule.</Description>
+    <RootNamespace>Credere.Mcp</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Credere.Core\Credere.Core.csproj" />
+    <ProjectReference Include="..\Credere.Shared\Credere.Shared.csproj" />
+    <ProjectReference Include="..\Credere.Modules.Ai\Credere.Modules.Ai.csproj" />
+    <ProjectReference Include="..\Credere.Modules.Reporting\Credere.Modules.Reporting.csproj" />
+    <ProjectReference Include="..\Credere.Modules.Servicing\Credere.Modules.Servicing.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="ModelContextProtocol" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,59 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.userprefs
+.vs/
+.vscode/
+*.pidb
+*.booproj
+*.log
+.idea/
+
+# Build outputs
+TestResults/
+coverage/
+*.trx
+BenchmarkDotNet.Artifacts/
+StrykerOutput/
+
+# Rider
+.idea/
+*.sln.iml
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.pnpm-store/
+*.tsbuildinfo
+.turbo/
+
+# pnpm
+.npmrc
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+
+# Local env
+*.env
+*.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Docker local overrides
+docker-compose.override.yml
+
+# Logs
+logs/
+*.log.*
+
+# Tool artifacts
+*.swp
+*~

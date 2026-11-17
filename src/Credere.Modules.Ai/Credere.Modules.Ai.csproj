@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Ai bounded context: agents, MCP tool implementations, deterministic guardrails, Mongo artifact stores.</Description>
+    <RootNamespace>Credere.Modules.Ai</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Credere.Core\Credere.Core.csproj" />
+    <ProjectReference Include="..\Credere.Shared\Credere.Shared.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
+    <PackageReference Include="Microsoft.Extensions.AI" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="ModelContextProtocol" />
+    <PackageReference Include="MongoDB.Driver" />
+    <PackageReference Include="NodaTime" />
+  </ItemGroup>
+</Project>

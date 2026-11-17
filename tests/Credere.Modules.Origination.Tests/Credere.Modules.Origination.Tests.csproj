@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Credere.Modules.Origination\Credere.Modules.Origination.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Credere evaluations console. Runs golden datasets through Ai agents and scores with a versioned LLM judge.</Description>
+    <RootNamespace>Credere.Ai.Evals</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Credere.Core\Credere.Core.csproj" />
+    <ProjectReference Include="..\Credere.Shared\Credere.Shared.csproj" />
+    <ProjectReference Include="..\Credere.Modules.Ai\Credere.Modules.Ai.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+</Project>

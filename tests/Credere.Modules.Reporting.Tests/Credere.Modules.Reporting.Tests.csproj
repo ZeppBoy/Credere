@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Credere.Modules.Reporting\Credere.Modules.Reporting.csproj" />
+  </ItemGroup>
+</Project>

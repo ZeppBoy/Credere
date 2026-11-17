@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Credere cross-cutting primitives: Result, outbox contracts, command idempotency, integration-event contracts.</Description>
+  </PropertyGroup>
+</Project>

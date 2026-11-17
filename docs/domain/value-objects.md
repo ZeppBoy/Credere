@@ -1,0 +1,124 @@
+# Value objects
+
+Credere's shared kernel exposes a small set of immutable value objects. Every domain method that would otherwise accept a `decimal`, `int`, or raw `string` of currency uses one of these instead.
+
+All live in `src/Credere.Core/ValueObjects/`. All are `sealed record`s. All validate their invariants in the constructor. All override `ToString()` for readable logs.
+
+## `Money`
+
+An amount in a specific currency.
+
+```csharp
+public sealed record Money
+{
+    public decimal Amount { get; }
+    public string Currency { get; }
+
+    public Money(decimal amount, string currency);
+    public static Money Zero(string currency);
+
+    // Arithmetic (same-currency only; cross-currency throws).
+    public static Money operator +(Money left, Money right);
+    public static Money operator -(Money left, Money right);
+    public static Money operator *(Money money, decimal factor);
+    public static Money operator *(decimal factor, Money money);
+    public static Money operator /(Money money, decimal divisor);
+
+    // Comparison (same-currency only).
+    public static bool operator <(Money left, Money right);
+    public static bool operator >(Money left, Money right);
+    public static bool operator <=(Money left, Money right);
+    public static bool operator >=(Money left, Money right);
+}
+```
+
+### Invariants
+
+- `Currency` is non-null, non-empty. ISO 4217 alpha-3 codes expected but not enforced here (callers may use `"EUR"`, `"USD"`, etc.).
+- `Amount` is stored to **two decimal places** using banker's rounding (`MidpointRounding.ToEven`). This matches most retail-banking conventions; currencies with other minor-unit scales will require a dedicated subclass or adjustment — deliberately out of scope.
+- Arithmetic across different currencies throws `InvalidOperationException`. Cross-currency conversion is explicit and goes through an `IFxConverter` (not in scope for this project — out of the non-goals).
+
+### Properties tested via FsCheck.Xunit
+
+- Addition is associative for same-currency: `(a + b) + c == a + (b + c)`.
+- Addition has identity: `a + Money.Zero(c) == a`.
+- Addition is commutative: `a + b == b + a`.
+- Subtraction cancels: `(a + b) - b == a` within rounding tolerance.
+- Multiplication by `1m` is identity.
+
+## `Percentage`
+
+A dimensionless ratio, with explicit unit awareness.
+
+```csharp
+public sealed record Percentage
+{
+    public decimal Value { get; }        // Stored as the "percent" number: 5.25 means 5.25%.
+    public decimal Fraction => Value / 100m;
+
+    public Percentage(decimal value);
+    public static Percentage FromFraction(decimal fraction); // 0.0525 → Percentage(5.25)
+    public static Percentage Zero => new(0m);
+
+    public static Percentage operator +(Percentage left, Percentage right);
+    public static Percentage operator -(Percentage left, Percentage right);
+    public static bool operator <(Percentage left, Percentage right);
+    public static bool operator >(Percentage left, Percentage right);
+}
+```
+
+### Invariants
+
+- `Value` is non-negative. Negative percentages (credit-side rebates) are out of scope and will be modelled explicitly if needed.
+- Addition is same-unit only (both as percent values, no mixing with fractions).
+
+### Why store as percent, not fraction?
+
+Human-readable logs and UI labels want `"5.25%"`. Converting at every boundary is noise. We keep the percent form internal and expose `.Fraction` for math.
+
+## `LoanTerm`
+
+The duration of a loan expressed in whole months.
+
+```csharp
+public sealed record LoanTerm
+{
+    public int Months { get; }
+
+    public LoanTerm(int months);
+    public static LoanTerm Months(int months);    // Convenience factory.
+    public static LoanTerm Years(int years);      // = Months(years * 12).
+
+    public LocalDate AddTo(LocalDate start);
+    public int ToYearsRounded();
+}
+```
+
+### Invariants
+
+- `Months >= 1`.
+- `Months <= 600` (50-year sanity ceiling; raise with documentation if a real product needs longer).
+
+### Why months, not an arbitrary period?
+
+Every amortization schedule generator in Credere works in month-granular steps. The LoanTerm is the single canonical representation; conversions to days (for accrual) are performed per period using the loan's `DayCountConvention`, not by the term itself.
+
+## `LoanId` and other strongly-typed ids
+
+Each aggregate has a strongly-typed id record. Example:
+
+```csharp
+public readonly record struct LoanId(Guid Value)
+{
+    public static LoanId New() => new(Guid.NewGuid());
+    public override string ToString() => $"loan_{Value:N}";
+}
+```
+
+Strongly-typed ids prevent mixing `LoanId` with `LoanApplicationId` at the compiler level. Each module defines its own ids; cross-module APIs use the owning module's id type.
+
+## What is explicitly NOT a value object
+
+- Dates and durations — use NodaTime's `LocalDate`, `LocalDateTime`, `Instant`, `Duration`, `Period` directly. We do not wrap them.
+- Email, phone, address — these belong to the Origination module's applicant model; not shared kernel.
+- Interest rate — modelled separately in [`rates.md`](rates.md) because a "rate" has internal structure (fixed / floating / tiered / effective).

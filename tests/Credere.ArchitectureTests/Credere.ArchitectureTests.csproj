@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Credere.Core\Credere.Core.csproj" />
+    <ProjectReference Include="..\..\src\Credere.Shared\Credere.Shared.csproj" />
+    <ProjectReference Include="..\..\src\Credere.Modules.Origination\Credere.Modules.Origination.csproj" />
+    <ProjectReference Include="..\..\src\Credere.Modules.Servicing\Credere.Modules.Servicing.csproj" />
+    <ProjectReference Include="..\..\src\Credere.Modules.Documents\Credere.Modules.Documents.csproj" />
+    <ProjectReference Include="..\..\src\Credere.Modules.Reporting\Credere.Modules.Reporting.csproj" />
+    <ProjectReference Include="..\..\src\Credere.Modules.Ai\Credere.Modules.Ai.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="NetArchTest.Rules" />
+  </ItemGroup>
+</Project>

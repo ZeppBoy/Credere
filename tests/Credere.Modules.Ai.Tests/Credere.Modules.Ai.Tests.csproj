@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Credere.Modules.Ai\Credere.Modules.Ai.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Origination bounded context: LoanApplication aggregate, underwriting decision.</Description>
+    <RootNamespace>Credere.Modules.Origination</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Credere.Core\Credere.Core.csproj" />
+    <ProjectReference Include="..\Credere.Shared\Credere.Shared.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="NodaTime" />
+  </ItemGroup>
+</Project>

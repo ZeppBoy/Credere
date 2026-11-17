@@ -1,0 +1,26 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Credere.Core/Credere.Core.csproj" />
+    <Project Path="src/Credere.Shared/Credere.Shared.csproj" />
+    <Project Path="src/Credere.Modules.Origination/Credere.Modules.Origination.csproj" />
+    <Project Path="src/Credere.Modules.Servicing/Credere.Modules.Servicing.csproj" />
+    <Project Path="src/Credere.Modules.Documents/Credere.Modules.Documents.csproj" />
+    <Project Path="src/Credere.Modules.Reporting/Credere.Modules.Reporting.csproj" />
+    <Project Path="src/Credere.Modules.Ai/Credere.Modules.Ai.csproj" />
+    <Project Path="src/Credere.Api/Credere.Api.csproj" />
+    <Project Path="src/Credere.Batch/Credere.Batch.csproj" />
+    <Project Path="src/Credere.Mcp/Credere.Mcp.csproj" />
+    <Project Path="src/Credere.Ai.Evals/Credere.Ai.Evals.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Credere.Core.Tests/Credere.Core.Tests.csproj" />
+    <Project Path="tests/Credere.Shared.Tests/Credere.Shared.Tests.csproj" />
+    <Project Path="tests/Credere.Modules.Origination.Tests/Credere.Modules.Origination.Tests.csproj" />
+    <Project Path="tests/Credere.Modules.Servicing.Tests/Credere.Modules.Servicing.Tests.csproj" />
+    <Project Path="tests/Credere.Modules.Documents.Tests/Credere.Modules.Documents.Tests.csproj" />
+    <Project Path="tests/Credere.Modules.Reporting.Tests/Credere.Modules.Reporting.Tests.csproj" />
+    <Project Path="tests/Credere.Modules.Ai.Tests/Credere.Modules.Ai.Tests.csproj" />
+    <Project Path="tests/Credere.Integration.Tests/Credere.Integration.Tests.csproj" />
+    <Project Path="tests/Credere.ArchitectureTests/Credere.ArchitectureTests.csproj" />
+  </Folder>
+</Solution>

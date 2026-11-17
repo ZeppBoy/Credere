@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+  <PropertyGroup>
+    <Description>Credere batch host. Runs daily accrual + aging + outbox dispatcher.</Description>
+    <RootNamespace>Credere.Batch</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Credere.Core\Credere.Core.csproj" />
+    <ProjectReference Include="..\Credere.Shared\Credere.Shared.csproj" />
+    <ProjectReference Include="..\Credere.Modules.Origination\Credere.Modules.Origination.csproj" />
+    <ProjectReference Include="..\Credere.Modules.Servicing\Credere.Modules.Servicing.csproj" />
+    <ProjectReference Include="..\Credere.Modules.Documents\Credere.Modules.Documents.csproj" />
+    <ProjectReference Include="..\Credere.Modules.Reporting\Credere.Modules.Reporting.csproj" />
+    <ProjectReference Include="..\Credere.Modules.Ai\Credere.Modules.Ai.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+</Project>
