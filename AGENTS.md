@@ -1,358 +1,182 @@
-# Credere — AI Agent Operating Manual
+# Credere — Agent Operating Manual
 
-> **Audience:** Any AI coding agent working on Credere. Treat this as authoritative. When it conflicts with your training defaults, this file wins.
-> **Companion files:** [`CLAUDE.md`](CLAUDE.md) for Claude Code specifics. [`docs/roadmap.md`](docs/roadmap.md) for milestone intent. Individual module docs for bounded-context details.
+<!--
+Maintainers: tuned for current Claude models (written against Claude Sonnet 5.5, 2026-11).
+Plain register on purpose: current models follow instructions literally and over-apply capitalised
+or bolded emphasis, so rules carry their reason instead. Re-audit with `/doctor prompt-audit`
+whenever the default model changes. Changes need owner approval via PR.
+-->
 
-Re-read the sections relevant to your current task before each significant edit. Do not assume — verify against this manual.
+This file applies to every AI coding agent and every human contributor. Delivery status is in [`docs/status.md`](docs/status.md), milestones in [`docs/roadmap.md`](docs/roadmap.md), and the design in [`docs/architecture.md`](docs/architecture.md) and [`docs/adr/`](docs/adr/). If a rule here seems wrong for your task, ask the owner instead of working around it.
 
-If a rule here seems wrong for your specific task, **stop and ask the human owner** before improvising. Never invent financial semantics.
+## 1. Context
 
----
+Credere is a term-loan servicing platform with an AI layer, built as a portfolio project and held to production standards. Its readers are fintech engineering managers, banking practitioners who will check day counts, state transitions and IFRS 9 staging, AI engineers, and the .NET community. A change is done when it would survive their review.
 
-## 1. Project context
+Work proceeds milestone by milestone, M1 to M7. `docs/status.md` records what actually exists, so check it before assuming a type, table or endpoint is there. Before starting work that belongs to a later milestone than the current one, say so.
 
-Credere is a loan servicing platform with an AI augmentation layer. It is a **portfolio project**, not a product. The target audiences for the code are:
+## 2. Commands
 
-1. Fintech engineering managers evaluating the project owner.
-2. Banking-domain practitioners who recognize correct day-count conventions, authentic state transitions, and sensible IFRS 9 staging.
-3. AI engineers learning agentic patterns in regulated-looking domains.
-4. The .NET community.
+| Task | Command |
+|---|---|
+| Start dependencies | `docker compose up -d` (SQL Server 2022, MongoDB 7, OTEL collector, Langfuse) |
+| Build (warnings are errors) | `dotnet build Credere.slnx` |
+| All tests | `dotnet test` from the repo root; integration tests need Docker running |
+| One project / one test | `dotnet test tests/<Project>` · add `--filter "FullyQualifiedName~<Name>"` |
+| Architecture tests | `dotnet test tests/Credere.ArchitectureTests` |
+| Format / check format | `dotnet format Credere.slnx` · `dotnet format Credere.slnx --verify-no-changes` |
+| Frontend | `pnpm --dir web install` · `pnpm --dir web lint` · `pnpm --dir web build` |
+| Mutation tests (`Credere.Core`) | Stryker.NET. Not configured yet; it lands in M1. |
+| AI evaluations | `src/Credere.Ai.Evals`. It calls paid models, so ask before running it. It is not part of `dotnet test`. Planned (M7). |
 
-If a change would not survive the scrutiny of any of these audiences, do not make it.
+There is no CI until M7, so the local checks in §11 are the only gate.
 
----
+## 3. Architecture
 
-## 2. Core principles
+Credere is a modular monolith: one deployable with five bounded-context modules, **Origination, Servicing, Documents, Reporting, Ai**. The boundaries are what make the project credible, and `tests/Credere.ArchitectureTests` enforces them as build failures.
 
-1. **Correctness over speed in financial logic.** Wrong interest is unrecoverable; slow interest is fixable.
-2. **Domain authenticity.** Every concept that exists in real loan servicing must exist here with the right semantics, not a simplified approximation. When we deliberately omit something (e.g., a general ledger), we say so in [`docs/README.md`](docs/README.md).
-3. **Make decisions visible.** Architectural choices live in [`docs/adr/`](docs/adr/) as accepted ADRs. Undecided questions live in [`docs/open-questions.md`](docs/open-questions.md). No "proposed" ADRs.
-4. **Tests are not optional.** Every piece of domain logic has unit tests. Every module workflow has integration tests against real SQL Server + MongoDB via Testcontainers. AI components have evaluation suites.
-5. **Idiomatic modern .NET 10.** Use the newest BCL features when they improve clarity. Avoid retro patterns.
-6. **No silent assumptions.** When information is missing, ask. Never fabricate values, identifiers, dates, or rates.
-7. **Transparency over cleverness.** Code is read more often than written. Optimize for the reader.
-8. **Module boundaries are law.** The architecture tests enforce them. If a test blocks a change, split the module or redesign the dependency — never weaken the test.
-
----
-
-## 3. Architecture — modular monolith
-
-The project is one deployable artifact composed of **bounded context modules**: Origination, Servicing, Documents, Reporting, Ai. Each module:
-
-- Owns its data (one `DbContext`, one SQL Server schema).
-- Owns its outbox table.
-- Exposes exactly one public interface (`I<Module>Module`) and a set of DTOs and integration events.
-- Has `internal` default visibility for everything else.
-- Does not reference another module's project.
-
-Cross-module communication = **integration events** written to the module's outbox in the same transaction as the state change. A background `OutboxDispatcher` relays events to subscribing modules (in-process today; a message broker tomorrow with zero module changes).
-
-Hosts (`Credere.Api`, `Credere.Batch`, `Credere.Mcp`) are composition roots. They wire module DI registrations and translate transport input/output. They do not embed business logic.
-
-The React UI talks only to `Credere.Api` over HTTP.
-
-Read [`docs/architecture.md`](docs/architecture.md) for the full picture.
-
----
-
-## 4. Project structure
+- Each module owns one `DbContext`, one SQL Server schema, and one outbox table.
+- A module exposes one facade, `I<Module>Module`, plus public command/query DTOs, strongly typed ids, views and integration events. Everything else is `internal` ([ADR-0008](docs/adr/0008-module-public-contracts.md)), and modules never grant `InternalsVisibleTo` to each other.
+- A module project references only `Credere.Core` and `Credere.Shared`. Modules talk to each other only through integration events, written to the outbox in the same transaction as the state change ([ADR-0005](docs/adr/0005-transactional-outbox.md)).
+- `Credere.Core` depends on NodaTime only. `Credere.Shared` depends on the BCL only.
+- Hosts (`Credere.Api`, `Credere.Batch`, `Credere.Mcp`) are composition roots: DI wiring and transport translation, no business logic. `web/` talks only to `Credere.Api` over HTTP.
+- When an architecture test blocks a change, the dependency needs redesigning, usually as an integration event. Weakening the test would hide the problem the test exists to catch.
 
 ```
-src/
-  Credere.Core/                  Shared kernel: value objects, math. NodaTime only.
-  Credere.Shared/                Cross-cutting primitives: Result, outbox contracts, idempotency.
-  Credere.Modules.Origination/   LoanApplication aggregate; underwriting.
-  Credere.Modules.Servicing/     Loan aggregate; payments (allocation); aging; payoff.
-  Credere.Modules.Documents/     QuestPDF generation; Mongo blob storage.
-  Credere.Modules.Reporting/     Dashboard read models (pure event consumer).
-  Credere.Modules.Ai/            Agents + MCP tools + guardrails + Mongo artifact stores.
-  Credere.Api/                   Minimal-API host. Wires modules.
-  Credere.Batch/                 Worker host. Daily accrual + aging + outbox dispatch.
-  Credere.Mcp/                   MCP stdio host.
-  Credere.Ai.Evals/              Executable evaluation console.
-tests/
-  Credere.Core.Tests/            Unit + property-based.
-  Credere.Shared.Tests/
-  Credere.Modules.*.Tests/       Per-module unit + lightweight integration.
-  Credere.Integration.Tests/     End-to-end via WebApplicationFactory + Testcontainers.
-  Credere.ArchitectureTests/     NetArchTest. Enforces module boundaries. BUILD-BREAKING.
-web/                             Next.js 15 banker UI (App Router, TypeScript).
-docs/                            Human-maintained documentation.
+src/   Credere.Core (value objects, math) · Credere.Shared (Result, outbox, idempotency)
+       Credere.Modules.{Origination,Servicing,Documents,Reporting,Ai}
+       Credere.Api · Credere.Batch · Credere.Mcp (hosts) · Credere.Ai.Evals (eval console)
+tests/ Credere.{Core,Shared}.Tests · Credere.Modules.*.Tests · Credere.Integration.Tests · Credere.ArchitectureTests
+web/   Next.js banker UI          docs/  architecture, ADRs, domain, modules, AI
 ```
 
-Rules:
+The internal layout of a module is described in [`docs/architecture.md` §4](docs/architecture.md).
 
-- `Credere.Core` and `Credere.Shared` are the only projects that may be referenced by multiple modules.
-- A module project (`Credere.Modules.X`) may reference only `Credere.Core` and `Credere.Shared`.
-- Hosts may reference modules through their public contracts (`I<Module>Module` + DTOs + integration events). The module project is referenced for DI registration only.
-- Tests may reference whatever they need to test.
-- `Credere.Ai.Evals` is a side-car executable: it may reference `Credere.Modules.Ai` to replay prompts.
-
----
-
-## 5. Technology stack — locked
+## 4. Locked stack
 
 | Area | Choice |
 |---|---|
-| Runtime | .NET 10, C# latest |
-| HTTP | ASP.NET Core minimal APIs |
-| Primary DB | SQL Server 2022 (Developer Edition locally) |
-| Secondary DB | MongoDB 7 (AI artifacts + document blobs) |
-| ORM | EF Core 10, one `DbContext` per module |
-| Dates / money | NodaTime, custom `Money`, `Percentage`, `InterestRate`, `DayCountConvention` |
-| Mediation | Direct `ICommandHandler<T, TR>` / `IQueryHandler<T, TR>` interfaces (no MediatR) |
-| Validation | `System.ComponentModel.DataAnnotations` + explicit `Validate` methods returning `Result<T, ValidationError>` (no FluentValidation) |
-| Mapping | Manual via record constructors / extension methods (no Mapster / AutoMapper) |
+| Runtime / HTTP | .NET 10, C# latest, ASP.NET Core minimal APIs |
+| Data | SQL Server 2022 + EF Core 10 (one `DbContext` per module); MongoDB 7 (AI artifacts, document blobs) |
+| Dates / money | NodaTime; custom `Money`, `Percentage`, `InterestRate`, `DayCountConvention` |
+| Mediation / mapping | Direct `ICommandHandler<T, TR>` / `IQueryHandler<T, TR>`; manual mapping. No MediatR, AutoMapper, or Mapster |
+| Validation | `Create(...)` and `Validate` methods returning `Result<T, DomainError>` with `ValidationError` ([ADR-0006](docs/adr/0006-error-semantics.md)); DataAnnotations at the transport edge. No FluentValidation |
 | PDF | QuestPDF |
-| Architecture tests | NetArchTest |
-| Testing | xUnit, FluentAssertions, FsCheck.Xunit, Verify.Xunit, Testcontainers, Bogus, Stryker.NET (mutation on `Credere.Core` only) |
-| AI abstraction | `Microsoft.Extensions.AI` |
-| Agent orchestration | Hand-rolled loop on MEAI. No Semantic Kernel. |
-| MCP | `ModelContextProtocol` C# SDK |
+| Testing | xUnit, FluentAssertions (pinned below v8, which changed licence), FsCheck.Xunit, Verify.Xunit, Testcontainers, Bogus, NetArchTest, Stryker.NET (`Credere.Core` only) |
+| AI | `Microsoft.Extensions.AI` with a hand-rolled agent loop (no Semantic Kernel); `ModelContextProtocol` C# SDK; agents target Claude Sonnet 5.5 (§9) |
 | Observability | OpenTelemetry + Langfuse |
-| Frontend | Next.js 15 App Router, TypeScript strict, Tailwind v4, shadcn/ui, pnpm |
-| Auth | Local IdentityServer (dev); JWT bearer |
+| Frontend | Next.js 15 App Router, TypeScript strict, Tailwind v4, shadcn/ui (copied in), pnpm via Corepack |
+| Auth | JWT bearer. The dev OIDC provider is undecided ([open question #3](docs/open-questions.md)) |
 
-**Do not propose alternatives unless explicitly asked.** New dependencies require an ADR.
+The stack is fixed so the codebase stays coherent for its readers. Propose alternatives only when asked. A new NuGet or npm dependency needs an ADR and owner approval. Versions live in `Directory.Packages.props` and `web/package.json`.
 
----
+## 5. Coding standards
 
-## 6. Coding standards
+- **Types:** public types are `sealed` unless inheritance is justified. One type per file, except a tightly related pair such as a record and its validator. File-scoped namespaces.
+- **Docs:** public APIs have XML doc comments. CS1591 is suppressed in `Directory.Build.props` until M1, so the build won't remind you.
+- **Nullability:** nullable reference types are on and warnings are errors. Optional values are `T?`, and operations that can fail return `Result<T, DomainError>`. `null!` hides a design problem, so fix the design instead.
+- **Public API types:** no `dynamic` and no `object`. A `#pragma warning disable` needs a comment that justifies it.
+- **Async:** every async method takes a `CancellationToken cancellationToken`. Library projects use `ConfigureAwait(false)`. Never block on async code with `.Result`, `.Wait()` or `GetAwaiter().GetResult()`.
+- **Errors ([ADR-0006](docs/adr/0006-error-semantics.md)):** expected business failures (validation, invalid transition, not found, concurrency conflict) are returned as `Result<T, DomainError>` from aggregate methods and handlers. Throw only for bugs and configuration errors. Catch `Exception` only to rethrow, or to log with full context.
+- **Idempotency ([ADR-0007](docs/adr/0007-command-idempotency.md)):** every command carries a `CommandId`. The handler stores a receipt in the same transaction as the state change and the outbox write. Integration-event handlers are idempotent per subscriber and event id.
+- **Time:** domain code never reads the clock; the business date or `Instant` arrives as a parameter, so batch runs can be replayed for any date. Application code takes NodaTime `IClock` from DI, and `SystemClock.Instance` appears only in host composition.
+- **Ids:** aggregate ids are strongly typed `readonly record struct`s such as `LoanId`, so the compiler stops a `LoanId` from being passed where a `LoanApplicationId` is expected. `CommandId` and `CorrelationId` stay `Guid`.
+- **Culture:** analyzer CA1305 is on. Machine-readable formatting and parsing use `CultureInfo.InvariantCulture`. Culture-specific formatting happens only in PDFs and the UI, with an explicit culture.
+- **Analyzers:** CA1848/CA2254 (`[LoggerMessage]` logging with constant templates), CA1852 (sealed internal types) and CA2016 (forward `CancellationToken`) already fail the build. Fix the code rather than suppress them.
+- **Visibility for tests:** a module grants `InternalsVisibleTo` only to its own test project.
+- **Naming:** commands are imperative (`DisburseLoan`), queries are nouns (`GetLoanById`), and domain and integration events are past tense (`LoanActivated`, `LoanDisbursed`). Unit test classes are named `<ClassUnderTest>Tests`, integration test classes `<Feature>Tests`.
 
-### General
-- Public types are `sealed` by default. Inheritance is opt-in and must be justified.
-- Public APIs are documented with XML comments.
-- Prefer composition over inheritance. Prefer interfaces over abstract classes without shared implementation.
-- One type per file. Small, tightly-related types may share a file (e.g., a record + its validator).
+## 6. Domain modelling
 
-### Nullability
-- `<Nullable>enable</Nullable>` is on globally.
-- No `null` in public APIs. Use `Maybe<T>`, `Result<T, E>`, or explicit `?`.
-- **Never** use `null!`. If you need it, the design is wrong.
+- **Aggregates:** one root per aggregate. Invariants are enforced at construction and in every command method. Aggregates do no I/O; application services orchestrate.
+- **State machines:** states and transitions are explicit types, never inferred from bool flags. An invalid transition returns `InvalidStateTransition`. Every transition emits a domain event. Update [`docs/domain/loan-lifecycle.md`](docs/domain/loan-lifecycle.md) first, then the code, in the same commit.
+- **Value objects:** `sealed record` with get-only properties and a readable `ToString()`. Untrusted input goes through a static `Create(...)` that returns `Result<T, DomainError>`. Constructors and operators throw only on programmer error, such as mixing currencies inside the domain. Types with invariants avoid positional parameters, because a `with` expression would bypass validation. A value object that holds a collection implements equality itself, because record equality compares collections by reference.
+- **Events:** domain events are internal to a module and carry enough data that consumers never re-query. Integration events are public records under `IntegrationEvents/`, versioned with `[Version(n)]`. A breaking change needs an upcaster and a note in the module doc.
 
-### Async
-- All async methods take `CancellationToken cancellationToken`.
-- Use `ConfigureAwait(false)` in library code (`Credere.Core`, `Credere.Shared`, module libraries).
-- Never call `.Result`, `.Wait()`, or `GetAwaiter().GetResult()`.
+## 7. Financial correctness
 
-### Error handling
-- Domain and application operations that can fail return `Result<T, DomainError>`. **All of them.** The semantics are uniform across every command and query handler.
-- Throw exceptions **only** for programmer bugs or configuration errors (null args from DI, missing environment variables, unreachable code paths).
-- An invalid state transition is an expected failure and returns `Result<T, DomainError>`. It does NOT throw.
-- Custom exceptions live in a project's `Exceptions/` folder and inherit from a project-specific base.
-- Never catch `Exception` without rethrowing or logging full context.
+Interest that has been charged wrongly cannot be quietly corrected later. Plausible-looking financial code is often subtly wrong: rounding in the wrong direction, an off-by-one day count, a mishandled grace period, or wrong compounding. So treat every calculation as unverified until it matches cited reference values. If `docs/domain/` doesn't define the day-count convention, rounding rule, leap-year or grace-period handling, or the APRC method a task needs, ask the owner rather than choosing one. Rates, dates, amounts and identifiers come from the task, the code, or a cited source, never from invention.
 
-### Naming
-- Aggregates: `Loan`, `LoanApplication`, `Payment`, `Document`.
-- Value objects: `Money`, `InterestRate`, `Percentage`, `LoanTerm`.
-- Commands: imperative verbs — `DisburseLoan`, `RecordPayment`.
-- Queries: descriptive nouns — `GetLoanById`, `ListOverdueLoans`.
-- Events (domain, internal): past tense — `LoanActivated`, `PaymentReceived`.
-- Integration events (public, cross-module): past tense — `LoanDisbursed`, `PaymentRecorded`.
-- Services: `IInterestCalculator`, `IScheduleGenerator`.
-- Tests: `<ClassUnderTest>Tests` for unit, `<Feature>Tests` for integration.
+Regulatory and market-convention texts (EUR-Lex, ECB, ISDA, EBA, BIS) change and are easy to misremember. When web access is available, check the current source even if you feel sure. Cite the document, section and example number in the XML doc and in the test.
 
-### Formatting
-- `dotnet format` before every commit. CI rejects unformatted code.
-- 4-space indent, no tabs. File-scoped namespaces.
+- **Time:** use NodaTime throughout domain and application code: `LocalDate` for business dates, an explicit `DateTimeZone` for jurisdiction-specific cut-offs such as end of day, and no `DateTime`, `DateTimeOffset` or `TimeSpan`. Banking days are local, so UTC is never assumed.
+- **Money:** domain signatures take `Money`, not raw `decimal`. `Money` rounds to two decimal places with `MidpointRounding.ToEven` when it is created ([value-objects.md](docs/domain/value-objects.md)). That makes every `Money` creation a rounding point, so intermediate math stays in `decimal` until a domain doc says to produce money.
+- **Rounding:** every rounding call passes its `MidpointRounding` explicitly, even where the default would be ToEven, so the call site shows the choice. Other rules apply only where a domain doc defines them.
+- **Number types:** no `double` or `float` in financial math. The one documented exception is the fractional exponent inside the APRC solver ([aprc.md](docs/domain/aprc.md)), which converts back to `decimal` at a single boundary.
+- **Day counts:** day differences in calculations come only from a `DayCountConvention`, never from `Period.Between`, `Period.DaysBetween` or date subtraction.
+- **Interest** goes through `IInterestCalculator`, so every calculation is in one auditable place.
+- **Reference cases:** a day-count convention needs ≥20 vectors from ISDA or ECB sources. APRC must match the official EU examples to four decimal places. Every other calculation needs ≥5 reference cases from a cited source.
+- **Payment allocation** goes fees → past-due interest → current interest → principal, in Servicing's `PaymentAllocationWaterfall` ([doc](docs/domain/payment-allocation.md)). It is present, without stubs, from the first slice that touches payments.
+- **APRC:** `AprcCalculator` follows Directive 2008/48/EC (and 2023/2225 where it applies). Any change re-runs the full reference suite.
+- **IFRS 9 staging** lives in `IIfrs9StagingService`. Change it only together with its doc, after discussing it with the owner.
 
-### Idempotency
-- Every command carries a `CommandId`. Handlers persist `(CommandId, Result)` in a per-handler receipt table within the same transaction. Duplicate commands return the original result.
-- Integration-event handlers are idempotent by subscriber + event-id.
+## 8. Testing
 
----
+- **Targets:** `Credere.Core` ≥90% line and ≥80% mutation. `Credere.Shared` ≥90% line. Module Application and Domain code ≥85% line. Infrastructure is covered by integration tests.
+- **What gets tested:**
+  - every public aggregate method
+  - every state transition, valid and invalid
+  - value-object algebra
+  - each API endpoint's happy path plus ≥3 failure modes
+  - batch idempotency
+  - every architecture rule
+- **Property-based tests (FsCheck):**
+  - `Money` associativity within one currency
+  - per-period interest summing to the total within tolerance
+  - schedule principal summing to the original principal
+  - APRC round-trip stability
+- **Real dependencies:** pure domain logic is tested directly. Persistence is tested against real SQL Server and MongoDB via Testcontainers. EF Core, Mongo and the LLM are never mocked, because those mocks hide the bugs that matter here. There is no mocking library in the stack; hand-written fakes are only for ports at the module edge, such as `IClock`.
+- **Isolation and determinism:**
+  - each test owns its data
+  - state resets by transaction rollback or a per-test schema, never by deleting rows
+  - Bogus is seeded
+  - a failing FsCheck seed becomes a pinned regression case
+  - time comes from a fake `IClock`, never from sleeps or wall-clock waits
+- **Snapshots:** Verify.Xunit covers generated schedules and PDFs (via text extraction). The `*.verified.*` files are the oracle, so a changed snapshot is accepted only after owner review.
 
-## 7. Domain modeling rules
+## 9. AI layer (M5+)
 
-### Aggregates
-- Single entry point (aggregate root).
-- Invariants enforced in the constructor and in every command method.
-- Commands return `Result<T, DomainError>` on success/business-failure; emit domain events on success.
-- Aggregates do not call external services. Application services orchestrate; aggregates are pure.
+Before changing `Credere.Modules.Ai`, `Credere.Mcp` or `Credere.Ai.Evals`, read [`docs/ai/overview.md`](docs/ai/overview.md) and [`docs/ai/guardrails.md`](docs/ai/guardrails.md). The model requirements are in [`docs/ai/agents.md` § Model requirements](docs/ai/agents.md).
 
-### State machines
-- States and transitions are explicit in code (not inferred from bool flags).
-- Invalid transitions return `Result<T, DomainError>` with full context. No exceptions.
-- Every transition emits a domain event.
-- Diagrams in [`docs/domain/loan-lifecycle.md`](docs/domain/loan-lifecycle.md) must stay in sync with code.
+- **Model config:** agents target Claude Sonnet 5.5 (`claude-sonnet-5-5`). Model ids and effort levels live in configuration (`AllowedModels`), never in code.
+- **MCP tools:** every tool requires authorization (JWT plus scope). Parameters and returns are explicit, validated records. A description reads as a contract: what the tool does, when to use it and when not, each parameter, and what it doesn't return. Every call is logged with the tool name, PII-redacted arguments, a result hash, latency, cost, and the Langfuse trace id.
+- **Prompts:** stored as versioned `.md` files in `src/Credere.Modules.Ai/Prompts/`, with changes recorded in `Prompts/CHANGELOG.md`.
+- **Guardrails:** `PolicyFilter` is deterministic code, not another LLM. Collections outreach requires human approval.
+- **Audit trail:** a short rationale field plus stored thinking summaries. Prompts never ask the model to write out its reasoning, because Sonnet 5.5 declines that as `reasoning_extraction`.
+- **Evals:** ≥200 golden scenarios per agent. Every result row records the judge prompt version, model id and effort level. Once CI exists, a drop of more than 5% fails it for changes under `src/Credere.Modules.Ai/**`, `src/Credere.Ai.Evals/**` or `docs/ai/golden/**`.
 
-### Value objects
-- `sealed record` with value-based equality.
-- Immutable. Operations return new instances.
-- Invariants validated in the constructor.
-- Override `ToString()` for readable logs.
+## 10. Hard constraints
 
-### Domain events (internal to a module)
-- Named in past tense, describe what happened.
-- Carry enough data that consumers don't need to re-query the aggregate.
-- Immutable records.
+Each of these protects something that can't be recovered or faked later:
 
-### Integration events (public, cross-module)
-- Published via the module's outbox in the same transaction as the state write.
-- Versioned via a `[Version(n)]` attribute. Breaking changes require an upcaster and a migration note in the module doc.
+- **No invented financial data.** Rates, dates, formulas or identifiers that aren't sourced would be presented to banking readers as fact.
+- **Failing tests are not skipped, deleted or weakened, and neither are architecture tests.** A failing test is evidence; investigate it and ask the owner before changing it.
+- **Generated files are regenerated, not hand-edited.** This covers EF migration designers, the model snapshot, and OpenAPI output; a hand edit drifts from the source and is lost on the next generation.
+- **Secrets and PII stay out of source and logs.** Use `dotnet user-secrets` locally and environment variables in CI. Redact PII before logging.
+- **A security check is disabled only with a security ADR.**
+- **ADRs are append-only.** A superseded ADR stays and links forward, so the decision history stays readable.
+- **Documentation describes the code as it is.** Mark status as Implemented, Planned (M<n>) or Under consideration, so readers can trust what the docs claim.
 
----
+## 11. Definition of done
 
-## 8. Testing requirements
+When you change code that can be built, run or tested, run a real check that exercises the change before you report it as done: the relevant tests, the build, `pnpm --dir web build`, or the changed command itself. A syntax-only check, or a check command that failed to start, does not count. If Docker or another prerequisite is missing, report which check didn't run and why, and don't call the change done.
 
-### Coverage targets
-- `Credere.Core`: ≥90% line, ≥80% mutation (Stryker.NET).
-- `Credere.Shared`: ≥90% line.
-- `Credere.Modules.*`: ≥85% line for Application + Domain; Infrastructure covered by integration tests.
-- AI: evaluation suites pass thresholds in [`docs/ai/evals.md`](docs/ai/evals.md).
+- `dotnet build Credere.slnx` passes with zero warnings, `dotnet test` passes from the root, and `dotnet format Credere.slnx --verify-no-changes` is clean. For frontend changes, `pnpm --dir web lint` and `pnpm --dir web build` pass.
+- New domain logic arrives with its tests. Financial logic cites its reference source in code and tests.
+- Docs are updated in the same change: ADR, module doc, state-machine diagram, and `docs/status.md` when a status changes.
+- Commits follow Conventional Commits, one logical change each, with a body that explains why ([CONTRIBUTING](CONTRIBUTING.md)). A `// TODO` or `// FIXME` carries an issue link.
+- The final report states what changed, which checks ran and their results, what wasn't verified, and any open questions.
 
-### What to test
-- Every public method of every aggregate.
-- Every state transition (valid and invalid).
-- Every value object's algebraic properties where applicable.
-- Every API endpoint's happy path and ≥3 failure modes.
-- Every batch operation's idempotency.
-- Every interest calculation against known reference values from ISDA / EU / ECB documentation.
-- Every architecture rule in `Credere.ArchitectureTests`.
+## 12. When to ask the owner
 
-### Property-based tests
-Use FsCheck.Xunit for:
-- `Money` addition associativity for same currency.
-- `InterestRate.Apply(principal, period).Sum() == TotalInterest(principal, rate, term)` within rounding tolerance.
-- Schedule generation: sum of principal portions equals original principal.
-- APRC calculation: round-trip stability.
+Ask the owner when:
+- a calculation has no authoritative reference
+- a banking concept looks wrong but a test asserts it
+- a security control blocks a feature
+- a test would need deleting or significant change
+- the task conflicts with this file
+- two sources of guidance disagree
+- a dependency outside the locked stack seems necessary
+- it's unclear which module owns a behaviour
 
-### Integration tests
-- Testcontainers for real SQL Server + MongoDB. Never mock the database.
-- Each test owns its data. No cross-test ordering dependencies.
-- Clean state via transaction rollback or per-test schema reset — not by deleting rows.
-
-### Snapshot tests
-- Verify.Xunit for generated schedules and generated PDFs (via text extraction).
-
----
-
-## 9. Banking domain semantics — critical rules
-
-### Never guess on financial math
-If you do not know the correct day-count convention, rounding rule, leap-year handling, or APRC iteration method — **stop and ask the human owner**. Do not invent. Do not extrapolate.
-
-LLMs are known to produce plausible-looking but subtly incorrect financial code. Verification against reference data is mandatory.
-
-### Day-count conventions
-- Live in `Credere.Core/Calculations/DayCounts/`.
-- Each has ≥20 test vectors sourced from ISDA documentation or ECB illustrative examples.
-- Reference sources cited in the implementation file's XML comment.
-- Formulas documented in [`docs/domain/day-counts.md`](docs/domain/day-counts.md).
-
-### Interest calculation
-- Only path is `IInterestCalculator`.
-- Never write inline interest math in handlers, services, or endpoints.
-- Rounding: banker's (`MidpointRounding.ToEven`) unless a specific business rule says otherwise. Document the choice in code.
-
-### Payment allocation
-- Waterfall: fees → past-due interest → current interest → principal.
-- Documented in [`docs/domain/payment-allocation.md`](docs/domain/payment-allocation.md) with a citation.
-- Lives in the Servicing module's `PaymentAllocationWaterfall` class.
-- **No stubs on the production path.** Payment allocation is present from the first slice that touches payments.
-
-### APRC
-- `AprcCalculator` implements iterative solver per EU Consumer Credit Directive 2008/48/EC (and 2023/2225 where applicable).
-- Reference cases match official EU examples to four decimal places.
-- Never modify without re-running the full reference suite.
-
-### IFRS 9 staging
-- Logic in `IIfrs9StagingService`.
-- Triggers documented in [`docs/domain/ifrs9-staging.md`](docs/domain/ifrs9-staging.md).
-- Do not modify staging without a documentation + owner discussion.
-
----
-
-## 10. AI layer rules
-
-### MCP tool design
-- Every tool requires authorization. No anonymous tools.
-- Parameter schemas are explicit and validated. No `object`, no `dynamic`.
-- Return shapes are structured records with documented fields.
-- Tool descriptions are written for an LLM consumer: when to use the tool, not just what it does.
-- Every invocation logged with: tool name, arguments (PII redacted), result hash, latency, cost, Langfuse trace id.
-
-### Agent prompts
-- System prompts live in `src/Credere.Modules.Ai/Prompts/` as `.md` files, not inline strings.
-- Prompt versions tracked. Changes increment the version and document the change in `src/Credere.Modules.Ai/Prompts/CHANGELOG.md`.
-- Prompts include: role, authority limits, compliance constraints, output format, few-shot examples.
-
-### Evaluations
-- Every agent has a golden dataset (≥200 scenarios) in MongoDB `ai.eval_golden`.
-- Evaluations run on every PR touching `src/Credere.Modules.Ai/**` or `docs/ai/prompts/**`.
-- A 5% drop on any metric fails CI.
-- LLM-as-judge prompts are versioned; the version is baked into every result row.
-
-### Observability
-- All LLM calls flow through Langfuse instrumentation.
-- Cost, latency, quality metrics tagged per agent.
-- Errors and refusals surfaced in dashboards, not just logs.
-
-### Safety and compliance
-- Collections agent: no threats, no third-party disclosure, no contact outside permitted hours, mandatory regulatory disclosures. Enforced by `PolicyFilter` — a deterministic rules engine, not another LLM.
-- Decision-supporting agents produce reasoning traces for audit.
-- Refusals are logged with full context.
-
----
-
-## 11. What you should do
-
-1. **Read the relevant files first.** Before editing a module, read its doc under `docs/modules/` and relevant ADRs.
-2. **Plan before acting.** For non-trivial changes, write a short plan before edits.
-3. **Make atomic changes.** One commit, one thing. Multi-step changes get multiple commits.
-4. **Write tests alongside code, not after.**
-5. **Run tests before claiming done.** "Wrote the code" ≠ "verified it works."
-6. **Run `dotnet format` before committing.**
-7. **Update documentation.** ADR, state-machine diagram, module doc, README — same PR.
-8. **Write clear Conventional-Commits messages.** Body explains why.
-9. **Escalate uncertainty.** When unsure about banking semantics, security, or architectural intent — ask the human.
-
----
-
-## 12. What you must never do
-
-1. **Never invent financial formulas, rates, dates, or identifiers.**
-2. **Never bypass tests** to make a change "look complete."
-3. **Never weaken an architecture test** to allow a cross-module dependency. Fix the design.
-4. **Never modify generated files directly** (EF migrations, OpenAPI output). Regenerate.
-5. **Never add secrets to source control.** `dotnet user-secrets` locally, env vars in CI.
-6. **Never log PII in plain text.** Customer names, account numbers, IDs go through redaction.
-7. **Never disable a security check** without a security ADR.
-8. **Never commit code that does not build.** `dotnet build` must succeed.
-9. **Never silence a compiler warning** with `#pragma warning disable` without justification.
-10. **Never use `dynamic`, `object`, or `var`-as-substitute-for-typing** in public APIs.
-11. **Never change a state transition rule** without updating the state machine documentation.
-12. **Never delete an ADR.** ADRs are append-only. Superseded ADRs are marked superseded and link to the replacement.
-13. **Never delete tests** to make the build green. Failing tests are signals, not obstacles.
-14. **Never put business logic in a host** (`Credere.Api`, `Credere.Batch`, `Credere.Mcp`). Hosts are composition roots.
-
----
-
-## 13. Escalate to the human when
-
-1. You cannot find an authoritative reference for a financial calculation.
-2. A banking concept in the code seems wrong but a test asserts it is correct.
-3. A security control appears to block a feature.
-4. You would need to delete or significantly change a test.
-5. The task asks you to do something this document forbids.
-6. Two pieces of guidance contradict (a code comment vs. an ADR).
-7. You are asked to add a dependency that conflicts with the locked stack.
-8. You are uncertain which module an action belongs to.
-
-### How to escalate
-- Stop the current task.
-- Summarize: what you're doing, what's blocking you, options, your recommendation + why.
-- Wait for input. Do not guess.
-
----
-
-## 14. Working style
-
-- **Concise.** Minimal narration around code changes.
-- **Honest.** If a change may have side effects, say so. If uncertain, say so.
-- **Incremental.** Small verifiable steps over large speculative changes.
-- **Skeptical.** Ask yourself if a banking analyst would find your change wrong. If yes, fix it.
-
----
-
-*Updates to this file require human approval via PR.*
+Describe what you were doing, what blocks you, the options, and your recommendation with its reasons. Then wait for the answer.
