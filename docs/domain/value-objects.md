@@ -63,8 +63,9 @@ public sealed record Percentage
     public decimal Value { get; }        // Stored as the "percent" number: 5.25 means 5.25%.
     public decimal Fraction => Value / 100m;
 
-    public Percentage(decimal value);
-    public static Percentage FromFraction(decimal fraction); // 0.0525 → Percentage(5.25)
+    public static Result<Percentage, DomainError> Create(decimal value);   // Untrusted input.
+    public Percentage(decimal value);                         // Trusted input; throws if negative.
+    public static Percentage FromFraction(decimal fraction);  // 0.0525 → Percentage(5.25); throws if negative.
     public static Percentage Zero => new(0m);
 
     public static Percentage operator +(Percentage left, Percentage right);
@@ -76,7 +77,7 @@ public sealed record Percentage
 
 ### Invariants
 
-- `Value` is non-negative. Negative percentages (credit-side rebates) are out of scope and will be modelled explicitly if needed.
+- `Value` is non-negative. Negative percentages (credit-side rebates) are out of scope and will be modelled explicitly if needed. `Create` returns a `ValidationError` for a negative value; the constructor and `FromFraction` throw, because a negative value there is a programmer error.
 - Addition is same-unit only (both as percent values, no mixing with fractions).
 
 ### Why store as percent, not fraction?
@@ -92,19 +93,22 @@ public sealed record LoanTerm
 {
     public int Months { get; }
 
-    public LoanTerm(int months);
-    public static LoanTerm Months(int months);    // Convenience factory.
-    public static LoanTerm Years(int years);      // = Months(years * 12).
+    public static Result<LoanTerm, DomainError> Create(int months);   // Untrusted input.
+    public static LoanTerm FromMonths(int months);   // Trusted input; throws outside 1..600.
+    public static LoanTerm FromYears(int years);     // = FromMonths(years * 12).
 
     public LocalDate AddTo(LocalDate start);
     public int ToYearsRounded();
 }
 ```
 
+The constructor is private. C# doesn't allow a static method with the same name as the `Months` property (CS0102), so the factories are named `FromMonths` and `FromYears`.
+
 ### Invariants
 
 - `Months >= 1`.
 - `Months <= 600` (50-year sanity ceiling; raise with documentation if a real product needs longer).
+- `Create` returns a `ValidationError` for a value outside this range. The trusted factories throw instead.
 
 ### Why months, not an arbitrary period?
 

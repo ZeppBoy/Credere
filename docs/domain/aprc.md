@@ -1,115 +1,181 @@
 # APRC — Annual Percentage Rate of Charge
 
-Credere computes an APRC per the EU Consumer Credit Directive. The result is surfaced to the borrower on the loan agreement and stored on the Loan aggregate as part of the approved terms.
+**Status:** Planned (M1).
+
+Credere computes the APRC (the "APR" in the directive's wording) for new consumer credit agreements under Directive (EU) 2023/2225. The result is shown to the borrower on the loan agreement and stored on the Loan aggregate as part of the approved terms.
 
 ## Authoritative sources
 
-- **Directive 2008/48/EC** (Consumer Credit Directive), Annex I.
-- **Directive 2023/2225** (revised Consumer Credit Directive), Annex III — for products falling under the revised scope. Where M1 implements the 2008 formulation; 2023 cases are additive.
-- **Commission Staff Working Document SWD(2012) 128 final**, "Guidelines on the application of Directive 2008/48/EC in relation to costs and the Annual Percentage Rate of Charge".
+| Source | Used for |
+|---|---|
+| **Directive (EU) 2023/2225** (revised Consumer Credit Directive), OJ L, 30.10.2023: Article 3(5) and 3(7) (definitions), Article 30 (calculation), **Annex III** Parts I and II | The equation, time intervals, rounding, and additional assumptions. This is the regime Credere implements. |
+| **Directive 98/7/EC**, OJ L 101, 1.4.1998, pp. 20–23: Annex II, which replaced Annex III ("Examples of calculation") of Directive 87/102/EEC | Reference vectors for the solver. These are the only worked APRC examples published in EU legislation. |
 
-Citations appear in the XML comment on `AprcCalculator.cs` with Annex / section references.
+Why this pairing (owner decision, 2026-11-18):
+
+- 2023/2225 repeals Directive 2008/48/EC with effect from 20 November 2026 (Article 47), and Member States apply their transposing measures from that date (Article 48(1)). 2008/48/EC keeps applying to agreements that existed on 20 November 2026 until they end. Credere does not model those legacy agreements.
+- Neither 2008/48/EC (Annex I) nor 2023/2225 (Annex III) contains worked examples. The equation in 98/7/EC is the same one, so its examples remain a valid test of the solver. Its 365.25-day variants were dropped from the later directives and are not used.
+
+The XML comment on `AprcCalculator.cs` and each test cite the article, Annex part and remark, or example number.
 
 ## Definition
 
-The APRC `X` satisfies:
+Annex III, Part I, of 2023/2225 defines the APR `X` by:
 
 ```
-Σₖ Cₖ / (1 + X)^tₖ = Σₗ Dₗ / (1 + X)^sₗ
+Σₖ Cₖ (1 + X)^(−tₖ) = Σₗ Dₗ (1 + X)^(−sₗ)
 ```
 
-where:
+- `Cₖ` is drawdown `k`. `tₖ` is the interval in years from the first drawdown to drawdown `k`, so `t₁ = 0`.
+- `Dₗ` is a repayment or a payment of charges. `sₗ` is the interval in years from the first drawdown to that payment.
+- The starting date is the date of the first drawdown (remark (b)).
 
-- `Cₖ` is a drawdown (loan amount paid to the borrower) occurring at time `tₖ` years from the reference date.
-- `Dₗ` is a borrower payment (principal + interest + fees) occurring at time `sₗ` years from the reference date.
-- Time is measured in years using **Actual/365 Fixed** convention (per Annex I §II of the 2008 Directive).
-- `X` is the annualized rate at which the two sides equate.
+The APR expresses the total cost of the credit to the consumer (Article 3(7)). Which charges belong in that cost is set by Article 3(5) and Article 30(2). The caller decides which charges to include when it builds the cash flows; the calculator does not.
 
-The equation is solved by an iterative numerical method; Credere uses **bisection** with convergence criteria described below.
+## Time intervals
+
+Annex III, Part I, remark (c):
+
+- A year is presumed to have 365 days (366 in a leap year), 52 weeks, or 12 equal months. A month is presumed to have 30.41666 days (365/12).
+- An interval that is not a whole number of weeks, months or years is expressed as a whole number of one of those periods plus a number of days:
+  - (i) every day is counted, including weekends and holidays;
+  - (ii) the equal periods are counted first, then the days, both backwards to the date of the initial drawdown;
+  - (iii) the days exclude the first day and include the last one. They are converted to years by dividing by 365 or 366: the number of days in the complete year counted backwards from the last day to the same day of the previous year.
+
+This is not Actual/365 Fixed on actual dates. Credere implements it as its own `DayCountConvention` subtype, `EuCcdAnnexIII`, in `src/Credere.Core/Aprc/`. AGENTS.md §7 requires every day difference to come from a `DayCountConvention`, and `EuCcdAnnexIII` satisfies that. Its `Fraction(firstDrawdown, date)` works as follows:
+
+1. Find `m`, the largest number of whole months such that `date.PlusMonths(−m) ≥ firstDrawdown`. Credere counts whole periods in months, because every M1 schedule is monthly or quarterly.
+2. Let `anchor = date.PlusMonths(−m)` and `n` = the days from `firstDrawdown` (excluded) to `anchor` (included).
+3. If `n = 0`, the fraction is `m / 12`.
+4. Otherwise it is `m / 12 + n / Y`, where `Y` is the number of days from `anchor.PlusYears(−1)` to `anchor` (365 or 366).
+
+Whole months are exact twelfths, so the 30.41666-day month never enters the calculation.
+
+**Month ends.** The directive doesn't say how to count a month back from a day that the earlier month lacks, for example from 31 March into February. Credere uses NodaTime's `PlusMonths`, which clamps to the last day of the shorter month. As a result, 31 January → 28 February 2026 is 0 months + 28 days, not 1/12. This is a Credere convention, not verified against a regulatory source; see [open question #9](../open-questions.md).
+
+The cases below are derived from the text of remark (c). The directive publishes no numeric examples. The arithmetic is shown so a reviewer can check it:
+
+| First drawdown | Cash flow | `m` | `anchor` | `n` | `Y` | Fraction |
+|---|---|---|---|---|---|---|
+| 2026-01-15 | 2027-07-15 | 18 | 2026-01-15 | 0 | — | 18/12 = 1.5 |
+| 2026-01-15 | 2026-03-01 | 1 | 2026-02-01 | 17 | 365 | 1/12 + 17/365 = 0.1299086758 |
+| 2027-12-20 | 2028-03-10 | 2 | 2028-01-10 | 21 | 365 | 2/12 + 21/365 = 0.2242009132 |
+| 2028-02-20 | 2028-04-10 | 1 | 2028-03-10 | 19 | 366 | 1/12 + 19/366 = 0.1352459016 |
+| 2026-01-31 | 2026-03-31 | 2 | 2026-01-31 | 0 | — | 2/12 = 0.1666666667 |
+| 2026-01-31 | 2026-02-28 | 0 | 2026-02-28 | 28 | 365 | 28/365 = 0.0767123288 (month-end clamp; open question #9) |
+
+Like the other conventions, `EuCcdAnnexIII` needs ≥20 vectors ([day-counts.md](day-counts.md#reference-vectors)).
+
+## Rounding
+
+Annex III, Part I, remark (d) requires the result to an accuracy of at least one decimal place, rounded half up: "if the figure at the following decimal place is greater than or equal to 5, the figure at that particular decimal place shall be increased by one".
+
+- `AprcResult.Rate` is the unrounded rate as a `decimal` fraction, for example `0.1296203771`. Tests and the audit trail use it.
+- `AprcResult.Disclosed` is a `Percentage` rounded to **two** decimal places with `MidpointRounding.AwayFromZero`. For the non-negative rates Credere computes, that equals the directive's half-up rule. Two places exceed the one-place minimum and match the two-place figures in the 98/7/EC examples. The loan agreement shows `Disclosed`.
 
 ## Scope in M1
 
 The M1 calculator handles:
 
-- One drawdown at a single date (the disbursement date), with amount equal to the loan principal less any upfront fees financed by the lender.
-- A fixed schedule of borrower payments (produced by the module's selected `IScheduleGenerator`).
-- Optional per-period charges added to each borrower payment (treated as part of `Dₗ`).
+- One drawdown at the disbursement date. Charges the creditor keeps at drawdown reduce the drawdown amount, as in 98/7/EC example A2 (1,000 lent, 50 retained, 950 drawn).
+- A fixed schedule of borrower payments, produced by the selected `IScheduleGenerator`.
+- Optional per-period charges, added to each borrower payment as part of `Dₗ`.
 
-Explicitly out of M1 scope:
+Out of M1 scope:
 
 - Multiple drawdowns.
-- Variable / contingent charges.
-- Early-repayment APRC.
-- Credit lines / overdrafts (Directive 2023/2225 §4 scope).
+- Variable or contingent charges, and the assumptions for them in Annex III Part II (f) and (g).
+- Overdraft facilities and open-end credit (Annex III Part II (d) and (e)).
+- APRC after early repayment.
 
 ## Implementation
 
 ```csharp
 public interface IAprcCalculator
 {
-    AprcResult Calculate(AprcRequest request);
+    Result<AprcResult, DomainError> Calculate(AprcRequest request);
 }
 
 public sealed record AprcRequest(
     IReadOnlyList<CashFlow> Drawdowns,
-    IReadOnlyList<CashFlow> BorrowerPayments,
-    LocalDate ReferenceDate);
+    IReadOnlyList<CashFlow> BorrowerPayments);   // Start date = earliest drawdown (remark (b)).
 
 public sealed record CashFlow(Money Amount, LocalDate Date);
 
 public sealed record AprcResult(
-    Percentage Aprc,
+    decimal Rate,             // Unrounded fraction.
+    Percentage Disclosed,     // Two decimal places, half up.
     int Iterations,
     decimal FinalResidual);
 ```
 
+`Calculate` returns a `ValidationError` ([ADR-0006](../adr/0006-error-semantics.md)) when:
+
+- there is no drawdown or no payment;
+- the currencies are mixed;
+- a payment is dated before the first drawdown;
+- the payments total less than the drawdowns (a negative APRC is out of scope);
+- no root is found with `X ≤ 100` (10,000 %).
+
 ### Algorithm
 
-1. Compute `τₖ = Act365Fixed.Fraction(ReferenceDate, tₖ)` for every cash flow.
-2. Define `f(X) = Σₖ Cₖ (1 + X)^(-τₖ) − Σₗ Dₗ (1 + X)^(-sₗ)`.
-3. Bracket `X ∈ [0, 1]`. If `f(0) × f(1) > 0`, widen the upper bound (iterate doubling up to `X = 100`).
-4. Bisect until:
-   - `|f(X)| < 1e-12 × max(|Drawdowns|, |Borrower payments|)`, OR
-   - the bracket width is `< 1e-10`, OR
-   - 200 iterations.
-5. Return `X` as a `Percentage` (converted from fraction, four-decimal precision guaranteed).
+1. Let `d₀` be the earliest drawdown date. For each cash flow compute `t = EuCcdAnnexIII.Fraction(d₀, date)`.
+2. Define `f(X) = Σₖ Cₖ (1 + X)^(−tₖ) − Σₗ Dₗ (1 + X)^(−sₗ)`.
+3. Start with the bracket `X ∈ [0, 1]`. If `f(0) × f(1) > 0`, double the upper bound up to `X = 100`.
+4. Bisect until any of these holds:
+   - `|f(X)| < 1e-12 × max(Σ|Cₖ|, Σ|Dₗ|)`;
+   - the bracket width is `< 1e-10`;
+   - 200 iterations have run.
+5. Convert the midpoint to `decimal` as `Rate`, then round it to produce `Disclosed`.
 
 ### Numerical notes
 
-- Inside the bisection, powers `(1 + X)^(-τ)` are computed in `double`, not `decimal`, because `decimal` has no fractional exponentiation. The error introduced by `double` is bounded (τ ≤ 50 years, X ≤ 100%, double has ~15 decimal digits of precision). The final `Aprc` is converted back to `decimal` with four-decimal rounding.
-- The reference APRC values in the EU Directive examples are given to four decimal places. Credere matches them exactly at that precision in all reference tests.
+- `decimal` has no fractional power, so the powers `(1 + X)^(−t)` are computed in `double`. This is the single exception AGENTS.md §7 allows. The result crosses back to `decimal` once, in step 5. With `t ≤ 50` years and `X ≤ 100`, `double`'s ~15 significant digits leave the error well below the 1e-7 precision the reference examples print.
 
 ### Reference examples
 
-Annex I of Directive 2008/48/EC contains six worked examples. All six are implemented as `AprcCalculatorTests`:
+Each worked example in 98/7/EC Annex II (amending 87/102/EEC Annex III) is a test in `AprcCalculatorTests`. The test's XML comment cites the part (A or B) and the example number. The "Exact" column was computed by bisection to 10 decimal places (2026-11-18).
 
-| Example | Scenario | Expected APRC |
-|---|---|---|
-| 1 | €6,000 one-off, 12 monthly payments of €528.65 | 9.6 % |
-| 2 | €6,000 with €60 upfront charge, 12 monthly payments of €528.65 | 11.9 % |
-| 3 | €6,000 one-off, 48 monthly payments | 9.6 % |
-| 4 | Credit granted for 3 months (demo of the time scale) | 6.0 % |
-| 5 | Bullet repayment, 12-month term | 6.0 % |
-| 6 | Deferred repayment, 24-month term | 7.9 % |
+| Ex. | Cash flows (amount @ years from drawdown) | Printed `i` | Printed % | Exact `i` |
+|---|---|---|---|---|
+| A1 | +1,000 @ 0; −1,200 @ 546/365 | 0.1296204 | 13 (12.96) | 0.1296203771 |
+| A2 | +950 @ 0; −1,200 @ 546/365 | 0.169026 | 16.9 | 0.1690262065 |
+| A3 | +1,000 @ 0; −600 @ 1; −600 @ 730/365 | 0.1306623 | 13.1 (13.07) | 0.1306623863 |
+| A4 | +1,000 @ 0; −272 @ 90/365; −272 @ 181/365; −544 @ 1 | 0.13226 | 13.2 (13.23) | 0.1322624554 |
+| B1 | +1,000 @ 0; −1,200 @ 1.5 | 0.129243 | 12.9 (12.92) | 0.1292432347 |
+| B2 | +950 @ 0; −1,200 @ 1.5 | 0.168526 | 16.9 (16.85) | 0.1685261269 |
+| B3 | +1,000 @ 0; −600 @ 1; −600 @ 2 | 0.13066 | 13.1 (13.07) | 0.1306623863 |
+| B4 | +1,000 @ 0; −272 @ 0.25; −272 @ 0.5; −544 @ 1 | 0.13185 | 13.2 (13.19) | 0.1318549545 |
 
-For each, the test XML comment cites the Annex example number, the inputs in the directive's wording, and the expected value.
+How the tests compare:
+
+- **Solver (all eight).** The tests feed the year fractions from the table straight to the internal solver, which `Credere.Core.Tests` reaches through `InternalsVisibleTo`. The A examples use calendar days over 365. Annex III would measure their dates as whole months, so the A examples can only test the solver.
+- **Precision.** `Rate` must lie within one unit of the last printed digit of `i`. The OJ rounds some values (A1) and truncates others (A3), so "round to N places" would be the wrong check.
+- **Disclosure.** `Disclosed` must equal the printed two-place percentage, where one is printed, and its one-place rounding must equal the printed one-place figure.
+- **End to end (B1–B4).** The B examples are also run through `Calculate` with dates a whole number of months apart, for example drawdown 2026-01-15 and payments on 2026-04-15, 2026-07-15 and 2027-01-15 for B4. This checks that `EuCcdAnnexIII` produces the B examples' fractions.
 
 ### Property-based invariants
 
-- **Round-trip stability.** For an annuity schedule with rate `r` and fee = 0, the computed APRC equals `r` within four decimal places. (Reason: the annuity formula and the APRC equation agree when there are no charges.)
-- **Monotonic in fees.** Adding an upfront charge strictly increases APRC.
-- **Monotonic in rate.** Increasing the nominal rate strictly increases APRC.
-- **Zero-sum degeneracy.** If total drawdowns equal total payments (zero interest, zero fees, trivial case), APRC is zero.
+- **Round-trip stability.** Take a `FixedRate` annuity under 30E/360 with:
+  - nominal rate `r`;
+  - no charges;
+  - payments on the disbursement's day of the month, with that day ≤ 28;
+  - principal ≥ 1,000.
+
+  Then `|Rate − ((1 + r/12)^12 − 1)| ≤ 1e-4`. Every period is exactly one month, so the equation discounts by `(1 + X)^(1/12)` a month while the schedule charges `r/12` a month. Only the cent rounding of payments separates them. In a 3,000-case sample the worst deviation was 8.2e-5, at 1,000 over 12 months. A failing FsCheck seed becomes a pinned regression case (AGENTS.md §8).
+- **Monotonic in fees.** Adding an upfront charge strictly increases the APRC.
+- **Monotonic in rate.** Increasing the nominal rate strictly increases the APRC.
+- **Zero-cost degeneracy.** With one drawdown and payments that total exactly the drawdown, the APRC is zero.
 
 ### Mutation testing
 
-Stryker.NET is run on `AprcCalculator.cs` with a mutation score threshold of 85%. The bisection body, convergence checks, and bracket widening are the most mutation-prone regions.
+Stryker.NET runs on `AprcCalculator.cs` and `EuCcdAnnexIII.cs` with an 85% mutation-score threshold. The bisection body, the convergence checks, bracket widening, and the month-counting loop are the regions most likely to let mutants survive.
 
 ## Future work (post-M1)
 
 - Multiple drawdowns.
-- Early-repayment APRC per Directive 2023/2225 Annex III.
-- Credit-line / overdraft APRC.
-- Disclosure extensions (e.g., representative APRC with assumed fees).
+- Overdraft and open-end credit assumptions (Annex III Part II (d) and (e)).
+- APRC after early repayment.
+- Representative examples with assumed fees for advertising.
 
-Each of these will arrive in its own PR with new reference cases cited from the appropriate Annex.
+Each arrives in its own PR, with reference cases cited from Annex III or another primary source.

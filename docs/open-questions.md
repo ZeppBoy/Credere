@@ -131,6 +131,36 @@ If the provider behind `IChatClient` drops or can't express any of these, the lo
 
 ---
 
+### 9. APRC: counting a month back from a day the earlier month doesn't have
+
+**Context.** Directive (EU) 2023/2225, Annex III, Part I, remark (c)(ii), counts whole periods backwards from a cash flow to the initial drawdown. It doesn't say what one month before, say, 31 March is. [`domain/aprc.md`](domain/aprc.md#time-intervals) uses NodaTime's `PlusMonths` clamping as an interim rule. Under it, drawdown 31 Jan 2026 → payment 28 Feb 2026 is 28/365 = 0.0767 years, not 1/12 = 0.0833. A schedule with month-end payment dates would get a broken period in every short month.
+
+**Options.**
+- (a) Keep the clamp. Simple, but a month-end payment in a shorter month never counts as a whole month.
+- (b) Add an end-of-month rule: when both dates are the last day of their month, count a whole month.
+- (c) Follow published guidance on 2023/2225 (Commission guidance or a Member State's transposition) if any addresses it.
+
+**Owner.** Human, before `AprcCalculator` is implemented (M1).
+
+**Recommendation.** Look for (c) first. If nothing addresses it, use (b) and mark it a Credere convention in the doc.
+
+---
+
+### 10. Fractional powers outside the APRC solver
+
+**Context.** `EffectiveRate` interest, `(1 + R)^τ`, and its annuity periodic rate, `(1 + R)^(1/12) − 1`, both need a fractional exponent ([`domain/rates.md`](domain/rates.md)). `decimal` has no fractional power. AGENTS.md §7 allows `double` only for the exponent inside the APRC solver.
+
+**Options.**
+- (a) Extend the AGENTS.md §7 exception to `EffectiveRate`, converting back to `decimal` at one boundary, as the solver does. Little code, but every exception weakens the rule.
+- (b) Add a `decimal` power function (exp/ln series) to `Credere.Core`, with its own reference cases and mutation coverage. No `double` anywhere; it could also replace the solver's `double`.
+- (c) Leave `EffectiveRate` out of M1 and add it when a product needs it.
+
+**Owner.** Human, before `EffectiveRate` is implemented (M1).
+
+**Recommendation.** (c) for M1, then (b) when a product needs an effective-rate quote.
+
+---
+
 ## Resolved
 
 (none yet — this project is at initial scaffolding)

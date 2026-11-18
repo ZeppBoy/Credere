@@ -16,7 +16,13 @@ public sealed record ScheduleRequest(
     LoanTerm Term,
     LocalDate DisbursementDate,
     LocalDate FirstPaymentDate,
-    Frequency PaymentFrequency);     // Monthly in M1; quarterly allowed as a non-primary case.
+    PaymentFrequency PaymentFrequency);
+
+public enum PaymentFrequency
+{
+    Monthly = 12,      // Value = periods per year. The primary case in M1.
+    Quarterly = 4,     // Allowed as a non-primary case; Term.Months must be a multiple of 3.
+}
 
 public sealed record AmortizationSchedule(IReadOnlyList<ScheduleRow> Rows);
 
@@ -34,46 +40,61 @@ Invariants (enforced by `AmortizationSchedule`'s constructor):
 
 - `Rows` is non-empty.
 - `Rows[0].OpeningBalance == Principal`.
-- `Rows[^1].ClosingBalance == Money.Zero(Principal.Currency)` within rounding tolerance.
+- `Rows[^1].ClosingBalance == Money.Zero(Principal.Currency)`, exactly, because the last row absorbs the residual (see [Rounding and residuals](#rounding-and-residuals)).
 - For each row: `OpeningBalance - PrincipalDue == ClosingBalance` and `InterestDue + PrincipalDue == TotalPayment`.
 - For each adjacent pair: `Rows[i].ClosingBalance == Rows[i+1].OpeningBalance`.
 - Dates are monotonically increasing.
 
+## Periods and interest (all generators)
+
+- **Payment dates.** Row `i` (1-based) falls on `FirstPaymentDate.PlusMonths((i − 1) × 12 / periodsPerYear)`. Each date is computed from `FirstPaymentDate` rather than from the previous row, so a month-end start doesn't drift: 31 January gives 28 February, then 31 March, not 28 March.
+- **Interest period.** Row `i` accrues from `periodStartᵢ` (inclusive) to `PaymentDateᵢ` (exclusive). `periodStart₁ = DisbursementDate` and `periodStartᵢ = PaymentDateᵢ₋₁`.
+- **Interest.** Every generator computes `interestDueᵢ = IInterestCalculator.Calculate(Rate, openingBalanceᵢ, periodStartᵢ, PaymentDateᵢ)` ([rates.md](rates.md#iinterestcalculator--the-single-entry-point)). The schedule's interest is therefore the same number Servicing accrues for that period, under the rate's own day-count convention.
+
 ## 1. Annuity
 
-`AnnuityScheduleGenerator`. Equal `TotalPayment` across all rows except (optionally) the last, which absorbs the rounding residual.
+`AnnuityScheduleGenerator`. Equal `TotalPayment` on every row except the last, which absorbs the residual.
 
-**Formula.** For a loan with principal `P`, periodic rate `r = rate / periodsPerYear`, and `n` payments:
+**Instalment.** For principal `P`, nominal periodic rate `r = NominalRate.Fraction / periodsPerYear`, and `n` payments:
 
 ```
 payment = P × r × (1 + r)^n / ((1 + r)^n − 1)
 ```
 
-For each period `i = 1..n`:
+`n` is an integer, so the power stays in `decimal`. The payment becomes a `Money` once, so it is rounded once.
+
+For each row `i = 1..n−1`:
 
 ```
-interestDueᵢ = openingBalanceᵢ × r
-principalDueᵢ = payment − interestDueᵢ
+interestDueᵢ   = IInterestCalculator.Calculate(Rate, openingBalanceᵢ, periodStartᵢ, PaymentDateᵢ)
+principalDueᵢ  = payment − interestDueᵢ
 closingBalanceᵢ = openingBalanceᵢ − principalDueᵢ
 ```
 
-**Edge cases.**
-- Zero rate: `payment = P / n`, interest is zero, principal is equal across periods.
-- Floating rate: generated at origination against the rate active at origination; re-generated on reset dates (M2+ once reset tracking lands).
+The last row pays the remaining balance: `principalDueₙ = openingBalanceₙ` and `totalPaymentₙ = interestDueₙ + openingBalanceₙ`.
 
-**Rounding policy.** `Money` rounds each amount to two decimals. The last row absorbs the residual — its `TotalPayment` can differ from the others by up to `0.01 × (n − 1)` in theory, in practice less. The residual direction is deterministic (banker's rounding applied consistently), so the schedule is stable under re-generation.
+**Why the instalment and the interest use different rates.** The instalment uses the nominal periodic rate, which is the usual way to quote an annuity instalment. The interest uses the day-count convention, because AGENTS.md §7 sends all interest through `IInterestCalculator`. The two agree when every period's day-count fraction is exactly `1 / periodsPerYear`. That happens under 30/360 ISDA or 30E/360 when:
+
+- the first period is one full period; and
+- the payment day of the month is ≤ 28.
+
+In every other case the difference builds up in the last row. That includes the Actual conventions, a broken first period, and payment days 29–31.
+
+**Edge cases.**
+- Zero rate: `payment = P / n`, interest is zero, and the last row absorbs the rounding.
+- Floating rate: the schedule is generated at origination against the rate active then, and re-generated on reset dates (M2+, once reset tracking lands).
+- `EffectiveRate`: blocked on [open question #10](../open-questions.md). Its periodic rate `(1 + R)^(1/periodsPerYear) − 1` needs a fractional power.
 
 ## 2. Differentiated (Decreasing)
 
 `DifferentiatedScheduleGenerator`. Equal `PrincipalDue` across all rows; `InterestDue` decreases as the balance drops.
 
-**Formula.** For each period `i = 1..n`:
+**Formula.** For each row `i = 1..n`:
 
 ```
-principalDueᵢ = P / n          (same for every row; last row absorbs residual)
-openingBalanceᵢ = P − (i − 1) × principalDueᵢ
-interestDueᵢ = openingBalanceᵢ × r
-totalPaymentᵢ = principalDueᵢ + interestDueᵢ
+principalDueᵢ  = Money(P / n)                (rounded once; the last row takes openingBalanceₙ instead)
+interestDueᵢ   = IInterestCalculator.Calculate(Rate, openingBalanceᵢ, periodStartᵢ, PaymentDateᵢ)
+totalPaymentᵢ  = principalDueᵢ + interestDueᵢ
 closingBalanceᵢ = openingBalanceᵢ − principalDueᵢ
 ```
 
@@ -81,30 +102,31 @@ closingBalanceᵢ = openingBalanceᵢ − principalDueᵢ
 
 ## 3. Bullet
 
-`BulletScheduleGenerator`. Principal is paid in a single final row; interest is paid periodically (or capitalized).
+`BulletScheduleGenerator`. Principal is paid in a single final row; interest is paid periodically or capitalised.
 
 Two modes:
 
-- **Interest-only until bullet.** Each period: `interestDue = openingBalance × r`, `principalDue = 0`, `totalPayment = interestDue`. Final row: `principalDue = P`, `totalPayment = interestDue + P`.
-- **Zero-coupon (capitalized interest).** All periods: `interestDue = 0`, `principalDue = 0`, `openingBalance` grows by compounded interest. Final row: `principalDue = openingBalance_final`, representing accumulated principal + interest.
+- **Interest-only until bullet.** Each row: `interestDue = IInterestCalculator.Calculate(...)` on the opening balance, `principalDue = 0`, `totalPayment = interestDue`. Final row: `principalDue = P` and `totalPayment = interestDue + P`.
+- **Zero-coupon (capitalised interest).** In every row except the last, `IInterestCalculator.Calculate(...)` is computed on the opening balance and added to it, so the balance compounds. Those rows show `InterestDue = 0`, `PrincipalDue = 0` and `TotalPayment = 0`. The final row pays the whole accumulated balance.
 
 **Use case:** bridge loans; some corporate structures.
 
 ## Rounding and residuals
 
 - Every monetary field in `ScheduleRow` is a `Money` and is therefore stored at 2 decimal places with banker's rounding.
-- The rounding **residual** (accumulated sub-cent drift) is assigned to the last row's `PrincipalDue`. This guarantees `Rows[^1].ClosingBalance == 0`.
-- The residual's documented upper bound is `0.01 × n` cents in the worst case; in practice it is far smaller.
-- An alternative — residual on the first row — is **not** used. Reason: borrowers expect the final payment to be the one that "closes out" the loan; adjusting the first payment confuses regulatory disclosures.
+- The **residual** goes into the last row's `PrincipalDue`, so `Rows[^1].ClosingBalance` is exactly zero.
+- The residual has no small fixed bound. The annuity instalment is rounded to the cent once, and that rounding error compounds over the term at the loan's rate. Example: 250,000 at 12% nominal, 360 monthly rows, 30E/360, payment day ≤ 28. The regular payment is 2,571.53 and the last is 2,576.59, a 5.06 difference against 360 rows. Mismatches between day count and nominal rate (see [Annuity](#1-annuity)) add to it. Reference cases assert the exact last row.
+- Putting the residual on the first row instead is **not** used, because the final payment is the one that closes out the loan.
 
-Reference: ECB Statistical Classification §6.4.2 ("rounding of scheduled payments").
+This placement is a Credere design decision. No regulatory source prescribes it.
 
 ## Verification
 
-- **Reference tests.** Each generator has at least ten canonical cases where the full schedule is specified (every row's amounts) and tested row-by-row.
+- **Reference tests.** Each generator has at least ten canonical cases where the full schedule is specified (every row's amounts) and tested row-by-row. The cases are formula-derived, with the arithmetic for at least the first two rows and the last row shown in the test comment.
 - **Property-based (FsCheck.Xunit).**
   - Sum of `PrincipalDue` across rows equals `Principal`.
-  - Sum of `InterestDue` across rows equals total interest computed independently via `IInterestCalculator`.
+  - Each row's `InterestDue` equals `IInterestCalculator.Calculate(Rate, OpeningBalance, periodStart, PaymentDate)` for that row.
   - `Rows[^1].ClosingBalance == Money.Zero(Principal.Currency)`.
   - Row count equals `Term.Months` (for monthly) or `Term.Months / 3` (for quarterly).
+  - Annuity under 30E/360 with the payment day ≤ 28 and a full first period: every row except the last has the same `TotalPayment`.
 - **Verify.Xunit snapshots.** A fixed set of canonical loans (€10,000 × 24 months × 5% fixed × 30E/360; etc.) have full-schedule snapshots locked in. Any change to the generator that affects these snapshots requires an updated snapshot in the same commit, with the reason in the commit message.

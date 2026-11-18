@@ -69,7 +69,7 @@ Before opening a PR:
 For changes to financial calculations, additionally:
 
 - [ ] A reference source is cited in code and tests.
-- [ ] Reference test cases from the cited source pass: ≥20 for a day-count convention, the official EU examples to four decimal places for APRC, ≥5 for any other calculation (see `AGENTS.md` §7).
+- [ ] Reference test cases from the cited source pass: ≥20 for a day-count convention, every Directive 98/7/EC worked example at its printed precision for APRC, ≥5 for any other calculation (see `AGENTS.md` §7).
 - [ ] A human reviewer with banking context is requested.
 
 ## Dependency changes

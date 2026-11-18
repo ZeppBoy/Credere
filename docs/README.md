@@ -14,9 +14,9 @@ This directory is the authoritative description of Credere's intent, architectur
 ### Domain — shared banking concepts
 - [`domain/value-objects.md`](domain/value-objects.md) — Money, Percentage, LoanTerm.
 - [`domain/rates.md`](domain/rates.md) — fixed, floating, tiered, effective.
-- [`domain/day-counts.md`](domain/day-counts.md) — ISDA / ECB conventions.
+- [`domain/day-counts.md`](domain/day-counts.md) — ISDA day-count conventions.
 - [`domain/schedules.md`](domain/schedules.md) — annuity, differentiated, bullet amortization.
-- [`domain/aprc.md`](domain/aprc.md) — EU Consumer Credit Directive calculator.
+- [`domain/aprc.md`](domain/aprc.md) — APRC under Directive (EU) 2023/2225 Annex III.
 - [`domain/loan-lifecycle.md`](domain/loan-lifecycle.md) — state machine + transitions.
 - [`domain/payment-allocation.md`](domain/payment-allocation.md) — allocation waterfall.
 - [`domain/ifrs9-staging.md`](domain/ifrs9-staging.md) — Stage 1/2/3 rules.
