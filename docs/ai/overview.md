@@ -20,7 +20,7 @@ Banker UI → Credere.Api POST /api/v1/applications/{id}/ai-credit-decision
       1. Load application + policy inputs via IReportingModule.
       2. Create ai.agent_sessions doc with inputs digest.
       3. Enter agent loop (AgentHost):
-           - IChatClient.CompleteAsync(system + conv, tools)
+           - IChatClient.GetResponseAsync(system + conv, tools)
            - If toolCalls: dispatch each via Credere.Modules.Ai.Mcp.*Tool,
              append ToolResult, continue.
            - Else: PolicyFilter.Apply(output).
@@ -65,7 +65,7 @@ A single declarative rule engine — `PolicyFilter` — applied to every agent o
 
 ## Evaluations
 
-Golden datasets with ≥200 scenarios per agent, stored in Mongo and mirrored as JSON lines in `docs/ai/golden/`. Scored by a versioned LLM judge (Haiku 4.5). A regression >5% on any metric fails CI. Full process in [`evals.md`](evals.md).
+Golden datasets with ≥200 scenarios per agent, stored in Mongo and mirrored as JSON lines in `docs/ai/golden/`. Scored by a versioned LLM judge (model configured; see [`evals.md`](evals.md)). A regression >5% on any metric fails CI. Full process in [`evals.md`](evals.md).
 
 ## Hard rules
 

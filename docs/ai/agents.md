@@ -21,7 +21,7 @@ The loop:
 1. Creates an `ai.agent_sessions` doc (status: `running`).
 2. Executes `def.PreModelPolicy(inputs)` — deterministic rules that may short-circuit the model (CreditDecisioning uses this).
 3. Iterates:
-   - Call `IChatClient.CompleteAsync(systemPrompt + conversation, def.Tools, ct)`.
+   - Call `IChatClient.GetResponseAsync(systemPrompt + conversation, def.Tools, ct)`.
    - If tool calls returned: dispatch via internal MCP tool dispatcher; append tool results.
    - Else: run `PolicyFilter.Apply(output)`. On refusal, record and return `Refused`. On pass, record final and return `Succeeded`.
 4. Caps at `def.MaxTurns` (default 8). Exceeding the cap is a `RefusedByLoopGuard` outcome, not an exception.
@@ -34,7 +34,7 @@ Every agent definition names:
 - `PreModelPolicy` (optional deterministic decision).
 - `GuardrailProfile` (which PolicyFilter rules apply).
 - `MaxTurns`.
-- `AllowedModels` (default: Anthropic Claude Sonnet 4.6; fallback Haiku 4.5 for cost-sensitive agents).
+- `AllowedModels` and `Effort` — model id and effort level, from configuration (see [Model requirements](#model-requirements-claude-sonnet-55)).
 
 ## 1. Credit-decisioning
 
@@ -165,20 +165,31 @@ A guardrail violation returns `Refused` with the specific rules cited.
 
 ## Prompts
 
-System prompts live at `src/Credere.Modules.Ai/Prompts/<agent>.md`. Each prompt:
+System prompts live at `src/Credere.Modules.Ai/Prompts/<agent>.md`, with a version in the frontmatter and changes recorded in `CHANGELOG.md` in that directory.
 
-- Names the agent's role explicitly.
-- States its authority limits in a bullet list.
-- Lists the tools available.
-- Defines the output format (JSON schema reference or prose template).
-- Includes three to five few-shot examples.
-- Carries a version in its frontmatter; the `CHANGELOG.md` in that directory tracks changes.
+Each prompt states, in plain language:
+- the agent's role and audience
+- its authority limits and compliance constraints, each with its reason, because Claude Sonnet 5.5 follows prompts literally and over-applies capitalised emphasis
+
+Prompts don't list tools, because the tool definitions carry that contract. Output shape comes from structured outputs (see [Model requirements](#model-requirements-claude-sonnet-55)), not prose templates. Few-shot examples appear only where wording matters (collections letters). Use several varied ones, labelled illustrative, because the model copies an example's length and tone.
 
 ## Costing and rate limits
 
-- Default model: Anthropic Claude Sonnet 4.6 for CreditDecisioning and Collections; Haiku 4.5 for EarlyWarning.
+- Default model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) for all three agents. Effort is set per agent and tuned on the eval suite. Start at `medium` for CreditDecisioning and Collections (multi-step tool use) and at `low` for EarlyWarning (per-loan classification). EarlyWarning may move to a cheaper model only where evals show it holds quality.
 - Cost cap per sweep configurable in `AiOptions`. Exceeding the cap stops the sweep cleanly with partial results.
 - Per-agent concurrency cap defaults to 4; configurable.
+
+## Model requirements (Claude Sonnet 5.5)
+
+- **Thinking:** adaptive, which is the model's default. Sonnet 5.5 rejects `thinking: {type: "disabled"}`, `budget_tokens`, and non-default `temperature` / `top_p` with a 400. Depth is controlled only through `output_config.effort`.
+- **Tool calls:** `tool_choice: auto` with `strict: true` tool schemas, because forced `any` / `tool` is a 400. The prompt says when each tool applies, and `AgentHost` checks that an expected call happened.
+- **Structured output:** `output_config.format` with the agent's output schema. Assistant-turn prefill is a 400. `PolicyFilter`'s schema rule stays as the deterministic backstop.
+- **History:** the conversation is append-only. Thinking blocks are passed back unchanged, and the system prompt and tool list stay fixed for the session's lifetime; editing either invalidates thinking blocks, and is a 400 on new accounts. Every tool the session may need is declared in the first request.
+- **`max_tokens`:** sized for thinking plus the reply. Start at 16,000 for non-streaming requests.
+- **Refusals:** `AgentHost` checks `stop_reason` before reading content. A `refusal` (categories cyber, bio, frontier_llm, reasoning_extraction, general_harms) becomes a `Refused` outcome, with its category stored in `ai.agent_sessions`. If a fallback model is configured, the session records which model produced the answer.
+- **Audit trail:** the decision's `rationale` field (structured output) plus thinking summaries (`thinking.display: "summarized"`). This is what the banker UI's "view reasoning" link shows. Prompts never ask the model to write out its reasoning, because Sonnet 5.5 declines that as `reasoning_extraction`.
+- **Caching:** the system prompt and tool definitions come first and stay byte-stable. Per-request data (loan facts, dates) goes after them.
+- **Provider support** for these requirements through `Microsoft.Extensions.AI` is unverified ([open question #7](../open-questions.md)).
 
 ## Observability
 

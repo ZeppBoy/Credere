@@ -1,6 +1,6 @@
 # Evaluations
 
-Credere evaluates its agents with golden datasets scored by a versioned LLM judge. A regression ≥5% on any tracked metric fails CI on PRs that touch `src/Credere.Modules.Ai/**` or `docs/ai/prompts/**`.
+Credere evaluates its agents with golden datasets scored by a versioned LLM judge. A regression ≥5% on any tracked metric fails CI on PRs that touch `src/Credere.Modules.Ai/**`, `src/Credere.Ai.Evals/**`, or `docs/ai/golden/**`.
 
 ## Pieces
 
@@ -47,7 +47,7 @@ Smaller volumes risk stochastic noise overwhelming a 5% threshold.
 
 ## Judge
 
-Judge model: Anthropic Claude Haiku 4.5 (cheap, fast). Judge prompt lives at `Prompts/judge.md`. It receives:
+Judge model: configured in `AiEvalsOptions`, with its id recorded in every result row. The candidates are Claude Haiku 5.5 (`claude-haiku-5-5`, cheapest) and Claude Sonnet 5.5; the owner chooses. Judge prompt lives at `Prompts/judge.md`. It receives:
 
 - The agent's output.
 - The expected acceptance criteria.
@@ -76,9 +76,11 @@ Every result row stores the judge-prompt version it was evaluated under:
 {
   "scenario_id": "cd-001",
   "run_id": "...",
-  "agent_version": "sonnet-4.6",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
   "agent_prompt_version": "cd-v12",
   "judge_version": "judge-v3",
+  "judge_model": "claude-haiku-5-5",
   "verdict": { ... },
   "latency_ms": 1740,
   "cost_usd": 0.021,
@@ -87,6 +89,8 @@ Every result row stores the judge-prompt version it was evaluated under:
 ```
 
 **Changing the judge prompt invalidates comparisons across versions.** The CI gate only compares runs with the same `judge_version`. A judge-version bump requires a full re-baseline (stored under a tag).
+
+**Runs are stochastic.** Current Claude models don't accept non-default sampling parameters, so a scenario can't be pinned to one output. Each scenario runs N times (N set in `AiEvalsOptions`, starting at 3). The gate compares means between runs that share `judge_version`, `model` and `effort`.
 
 ## Metrics
 
@@ -101,7 +105,7 @@ Compliance sub-score has its own threshold: any **compliance** sub-score < 1.0 i
 
 ## CI gate (M7)
 
-Triggered on PRs that touch `src/Credere.Modules.Ai/**` or `docs/ai/prompts/**`.
+Triggered on PRs that touch `src/Credere.Modules.Ai/**` (prompts live in its `Prompts/` folder), `src/Credere.Ai.Evals/**`, or `docs/ai/golden/**`.
 
 1. Run the evals console.
 2. Compare the current `run_id`'s metrics to the latest `run_id` on `main` with the same `judge_version`.

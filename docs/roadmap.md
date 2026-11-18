@@ -85,6 +85,6 @@ Credere is built in **milestones**, not calendar phases. Each milestone ends wit
 ### Acceptance
 - Golden datasets in `ai.eval_golden` (mirrored as JSON lines in `docs/ai/golden/`).
 - `Credere.Ai.Evals` console app runs the full suite.
-- Judge = Haiku 4.5 with a versioned prompt; version baked into every result row.
-- CI config (introduced at this milestone) runs evals on PRs touching `src/Credere.Modules.Ai/**` or `docs/ai/prompts/**`. A 5% drop on any metric fails the build.
+- Judge model configured (see [`ai/evals.md`](ai/evals.md) § Judge) with a versioned prompt; judge version, judge model, agent model and effort baked into every result row.
+- CI config (introduced at this milestone) runs evals on PRs touching `src/Credere.Modules.Ai/**`, `src/Credere.Ai.Evals/**`, or `docs/ai/golden/**`. A 5% drop in the mean of any metric across repeated runs fails the build.
 - Aspire OTLP dashboard shows traces, metrics, logs across API, Batch, Mcp, and the agent calls.

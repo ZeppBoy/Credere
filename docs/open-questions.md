@@ -97,6 +97,40 @@ Each entry has: question, options considered, owner, by-when (if any).
 
 ---
 
+### 7. Does the `Microsoft.Extensions.AI` provider support what Claude Sonnet 5.5 requires?
+
+**Context.** The agents run on a hand-rolled loop over `IChatClient` (locked stack). Claude Sonnet 5.5 requires the loop to:
+- pass thinking blocks back unchanged, signatures included
+- send `output_config.effort`
+- use structured outputs (`output_config.format`)
+- expose `stop_reason: "refusal"` with its `stop_details` category
+
+If the provider behind `IChatClient` drops or can't express any of these, the loop either fails (a 400 on history edits) or loses the audit data that [`ai/agents.md` § Model requirements](ai/agents.md#model-requirements-claude-sonnet-55) depends on.
+
+**Options.**
+- (a) Use an MEAI provider that round-trips all four, configuring Anthropic-specific options through its extension points.
+- (b) Keep `IChatClient` for simple calls, and call the official Anthropic C# SDK directly inside `AgentHost`. This needs an ADR, because it changes the locked stack.
+
+**Owner.** Human, before M5. A spike settles it: send one multi-turn tool-use conversation through the chosen provider and check all four requirements.
+
+**Recommendation.** Run the spike first. Prefer (a) if it passes; otherwise use (b), limited to `AgentHost`.
+
+---
+
+### 8. Where do shared persistence converters live?
+
+**Context.** Every module needs EF Core value converters (and Mongo serializers) for NodaTime types, `Money`, and strongly typed ids. The architecture tests forbid `Credere.Core` from referencing EF or Mongo, and forbid `Credere.Shared` from referencing NodaTime, EF or Mongo.
+
+**Options.**
+- (a) Duplicate the converters in each module's `Infrastructure/`. No new project, but five copies.
+- (b) Add a `Credere.Persistence` project (Core + EF + Mongo) that modules may reference. One copy, but it needs an ADR and an architecture-test update.
+
+**Owner.** Human, before the first `DbContext` (M2).
+
+**Recommendation.** (a) until a second module needs the converters, then (b).
+
+---
+
 ## Resolved
 
 (none yet — this project is at initial scaffolding)

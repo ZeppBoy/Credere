@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "model": "sonnet",
+  "effortLevel": "high",
+  "permissions": {
+    "allow": [
+      "Bash(dotnet restore *)",
+      "Bash(dotnet build *)",
+      "Bash(dotnet test *)",
+      "Bash(dotnet format *)",
+      "Bash(docker ps *)",
+      "Bash(docker compose ps *)",
+      "Bash(pnpm --dir web lint *)",
+      "Bash(pnpm --dir web build *)"
+    ],
+    "ask": [
+      "Bash(dotnet add *)",
+      "Bash(pnpm --dir web add *)",
+      "Bash(dotnet run --project src/Credere.Ai.Evals *)",
+      "Bash(git push *)",
+      "Bash(git reset --hard *)",
+      "Bash(git clean *)",
+      "Bash(docker compose down *)",
+      "Edit(/tests/**/*.verified.*)",
+      "Edit(/AGENTS.md)",
+      "Edit(/CLAUDE.md)",
+      "Edit(/Directory.Packages.props)",
+      "Edit(/Directory.Build.props)",
+      "Edit(/web/package.json)",
+      "Edit(/tests/Credere.ArchitectureTests/**)",
+      "Edit(/.claude/**)"
+    ],
+    "deny": [
+      "Read(*.env)",
+      "Read(*.env.*)",
+      "Edit(/src/**/Migrations/*.Designer.cs)",
+      "Edit(/src/**/Migrations/*ModelSnapshot.cs)",
+      "Bash(git push --force *)",
+      "Bash(git push -f *)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/format-cs.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

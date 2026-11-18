@@ -57,3 +57,8 @@ logs/
 # Tool artifacts
 *.swp
 *~
+
+# Claude Code: personal settings and notes (shared config in .claude/ is committed)
+CLAUDE.local.md
+.claude/settings.local.json
+docs/working-notes/
