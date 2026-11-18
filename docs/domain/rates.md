@@ -1,10 +1,30 @@
 # Interest rates
 
-Interest rates are modelled as a `sealed record` hierarchy rooted at `InterestRate`. Each subtype is a distinct banking concept; **every subtype's `CalculateInterest` method is unique to that type** — the Promissio pattern of "every rate is simple interest in disguise" is not repeated here.
+Interest rates are modelled as a `sealed record` hierarchy rooted at `InterestRate`. Each subtype is a distinct banking concept; **every subtype's interest formula is unique to that type** — the Promissio pattern of "every rate is simple interest in disguise" is not repeated here.
 
 All live in `src/Credere.Core/Rates/`.
 
 > The sketches below use positional-record syntax for brevity. Implementations follow the construction rules in [`value-objects.md`](value-objects.md): get-only properties plus a static `Create(...)` returning `Result<T, DomainError>`. That way a `with` expression can't bypass an invariant such as `NominalRate ≤ 100%`.
+
+## `IInterestCalculator` — the single entry point
+
+AGENTS.md §7 says that interest goes through `IInterestCalculator`, so every calculation is in one auditable place. Schedules, accrual and payoff all call it, and nothing else computes interest.
+
+```csharp
+public interface IInterestCalculator
+{
+    /// <summary>
+    /// Interest on <paramref name="balance"/> for the period from <paramref name="periodStart"/>
+    /// (inclusive) to <paramref name="periodEnd"/> (exclusive) under <paramref name="rate"/>.
+    /// </summary>
+    Money Calculate(InterestRate rate, Money balance, LocalDate periodStart, LocalDate periodEnd);
+}
+```
+
+- `InterestCalculator` is the only implementation: a stateless `sealed` class that delegates the formula to the rate subtype.
+- `periodEnd < periodStart` is a programmer error and throws.
+- The rate's formula method is `internal`, so code outside `Credere.Core` can't bypass the calculator. Because the member is `internal abstract`, the hierarchy also can't be extended outside the assembly.
+- **Rounding point:** each call computes in `decimal` and creates exactly one `Money` at the end, which rounds to two places with `MidpointRounding.ToEven` ([value-objects.md](value-objects.md#money)). Per-period interest in a schedule row is that `Money` ([schedules.md](schedules.md)).
 
 ## `InterestRate` (abstract root)
 
@@ -14,8 +34,9 @@ public abstract record InterestRate
     public abstract Percentage NominalRate { get; }
     public abstract DayCountConvention DayCountConvention { get; }
 
-    public abstract Money CalculateInterest(
-        Money principal,
+    // Called only by InterestCalculator.
+    internal abstract Money CalculateInterest(
+        Money balance,
         LocalDate periodStart,
         LocalDate periodEnd);
 }
@@ -30,12 +51,12 @@ public sealed record FixedRate(
     Percentage NominalRate,
     DayCountConvention DayCountConvention) : InterestRate
 {
-    public override Money CalculateInterest(Money p, LocalDate s, LocalDate e)
-        => p * (NominalRate.Fraction * DayCountConvention.Fraction(s, e));
+    internal override Money CalculateInterest(Money balance, LocalDate s, LocalDate e)
+        => balance * (NominalRate.Fraction * DayCountConvention.Fraction(s, e));
 }
 ```
 
-- **Formula:** `interest = principal × rate × dayCountFraction(s, e)`.
+- **Formula:** `interest = balance × rate × dayCountFraction(s, e)`.
 - **Use case:** standard installment loans.
 - **Invariants:** `NominalRate` ≥ 0, ≤ 100%.
 
@@ -50,11 +71,11 @@ public sealed record FloatingRate(
 {
     public override Percentage NominalRate => BaseRate + Margin;
 
-    public override Money CalculateInterest(Money p, LocalDate s, LocalDate e);
+    internal override Money CalculateInterest(Money balance, LocalDate s, LocalDate e);
 }
 ```
 
-- **Formula:** per sub-period defined by the `ResetSchedule`, use the BaseRate effective on the reset date + Margin. `interest(s, e) = Σᵢ principal × rateᵢ × dayCountFraction(sᵢ, eᵢ)`.
+- **Formula:** per sub-period defined by the `ResetSchedule`, use the BaseRate effective on the reset date + Margin. `interest(s, e) = Σᵢ balance × rateᵢ × dayCountFraction(sᵢ, eᵢ)`. The sum stays in `decimal` and becomes `Money` once.
 - **Use case:** EURIBOR + margin products.
 - **Reset schedule:** out of scope for M1; a `ResetSchedule.Fixed(baseRate)` placeholder is used until M2 introduces reset tracking.
 - **Invariants:** `BaseRate`, `Margin` ≥ 0.
@@ -69,9 +90,10 @@ public sealed record TieredRate(
 {
     public override Percentage NominalRate => Tiers[^1].Rate;
 
-    public override Money CalculateInterest(Money p, LocalDate s, LocalDate e);
+    internal override Money CalculateInterest(Money balance, LocalDate s, LocalDate e);
 
-    public sealed record Tier(Percentage Rate, Money UpperLimit);
+    // UpperLimit is null only on the last tier, meaning "no upper limit".
+    public sealed record Tier(Percentage Rate, Money? UpperLimit);
 }
 
 public enum TieredApplicationMode
@@ -81,31 +103,37 @@ public enum TieredApplicationMode
 }
 ```
 
-- **Formula (OnCurrentBalance):** find the first tier where `currentBalance <= UpperLimit`; apply that rate across the period.
-- **Formula (Marginal):** for each tier, compute `min(currentBalance, upper) - previousUpper` and apply that tier's rate; sum.
+- **Formula (OnCurrentBalance):** find the first tier where `UpperLimit` is null or `balance <= UpperLimit`; apply that rate across the period.
+- **Formula (Marginal):** for each tier, compute `min(balance, upper) − previousUpper`, treating a null `upper` as `balance`, and apply that tier's rate. The sum stays in `decimal` and becomes `Money` once.
 - **Use case:** balance-banded pricing on revolving-flavoured term products.
-- **Invariants:** at least one tier; tiers sorted ascending by `UpperLimit`; the last tier's `UpperLimit` is effectively ∞ in practice (represented as `Money.MaxValue` or a conventional cap).
+- **Invariants:**
+  - At least one tier.
+  - Every tier except the last has a non-null `UpperLimit`, with limits strictly ascending.
+  - The last tier's `UpperLimit` is null.
+  - All limits are in the currency of the balance.
 
-**The Promissio bug to avoid:** `TieredRate` must be called with **current balance**, not the original principal, for `OnCurrentBalance` lookup. The signature `CalculateInterest(Money p, ...)` takes "principal for this period" — the caller's responsibility to pass the current remaining balance. The documentation and the method name inside the module (`CalculateInterestOnBalance`) make this explicit.
+**The Promissio bug to avoid:** `TieredRate` must be called with the **current balance**, not the original principal, for the `OnCurrentBalance` lookup. That is why the parameter is named `balance` on every rate: the caller passes the outstanding balance for the period.
 
-## `EffectiveRate` (APRC)
+## `EffectiveRate` (effective annual rate)
 
 ```csharp
 public sealed record EffectiveRate(
-    Percentage AnnualPercentageRate,
+    Percentage EffectiveAnnualRate,
     DayCountConvention DayCountConvention) : InterestRate
 {
-    public override Percentage NominalRate => AnnualPercentageRate;
+    public override Percentage NominalRate => EffectiveAnnualRate;
 
-    public override Money CalculateInterest(Money p, LocalDate s, LocalDate e);
+    internal override Money CalculateInterest(Money balance, LocalDate s, LocalDate e);
 }
 ```
 
-- **Formula:** `interest = principal × ((1 + APR)^τ − 1)` where `τ = dayCountFraction(s, e)`. This is **compound** interest derived from the effective annual rate, **not** simple interest. See [`aprc.md`](aprc.md) for the full APRC definition.
-- **Use case:** regulatory disclosure rate (per EU Consumer Credit Directive 2008/48/EC and 2023/2225). Used when the "annual effective rate" is what has been quoted to the borrower; the schedule is derived from it.
-- **Invariants:** `AnnualPercentageRate` ≥ 0, ≤ 100%.
+- **Formula:** `interest = balance × ((1 + R)^τ − 1)`, where `R` is the effective annual rate and `τ = dayCountFraction(s, e)`. This is **compound** interest derived from an effective annual rate, **not** simple interest.
+- **Use case:** products whose rate is quoted as an effective annual rate rather than a nominal one; the schedule is derived from it.
+- **Not the APRC.** The APRC is defined in Directive (EU) 2023/2225, Article 3(7), as the total cost of the credit to the consumer, including charges, expressed as an annual percentage of the total amount of credit. `AprcCalculator` computes it from cash flows ([`aprc.md`](aprc.md)). An APRC is an output, never an input rate. The two coincide only when there are no charges and the intervals are whole periods.
+- **Invariants:** `EffectiveAnnualRate` ≥ 0, ≤ 100%.
+- **Open:** `(1 + R)^τ` with fractional `τ` needs a fractional power, which `decimal` doesn't provide, and AGENTS.md §7 allows `double` only in the APRC solver. `EffectiveRate` is not implemented until [open question #10](../open-questions.md) is decided.
 
-**The Promissio bug to avoid:** applying APRC as if it were simple interest (`principal × rate × fraction`) is wrong. APRC is defined via compounding; using the compound form here is the whole point of having a separate subtype.
+**The Promissio bug to avoid:** applying an effective annual rate as if it were simple interest (`balance × rate × fraction`) is wrong. An effective rate is defined via compounding; using the compound form is the whole point of having a separate subtype.
 
 ## Common rules
 
@@ -113,16 +141,17 @@ public sealed record EffectiveRate(
 - Rates are never "changed" on an existing loan — they are replaced, and the replacement is a modelled business event (not in scope until a restructuring feature lands).
 - Day-count conventions belong to the rate (not the loan) because different sub-periods of a floating rate can use different conventions in principle. We don't currently exploit this, but the shape leaves room for it.
 - `CalculateInterest` works in absolute, compounding-free terms for Fixed / Floating / Tiered. Compounding happens at the schedule-generator level or, for `EffectiveRate`, inside the rate itself.
+- Each call rounds once, when it creates the `Money` it returns. Intermediate products and sums stay in `decimal`.
 
 ## Testing
 
 Each rate type has:
 
-1. Unit tests on `CalculateInterest` with explicit input/output pairs.
-2. At least three independent reference cases taken from ISDA 2006 Definitions or ECB illustrative material, cited in the test class's XML comment.
+1. Unit tests on `IInterestCalculator.Calculate` with explicit input/output pairs.
+2. At least five reference cases from a cited source (AGENTS.md §7), named in the test class's XML comment. Use published worked examples where they exist: for example, the four Actual/Actual (ISDA) examples in ISDA's 1998 memo are `FixedRate` cases on £10,000 at 10% ([day-counts.md](day-counts.md#reference-vectors)). Otherwise use formula-derived cases with the arithmetic shown.
 3. Property-based invariants (FsCheck.Xunit):
-   - Zero principal → zero interest.
+   - Zero balance → zero interest.
    - Zero period (`s == e`) → zero interest.
-   - Linearity in principal for Fixed / Floating: `interest(2p) == 2 × interest(p)`.
-   - Rate × fraction symmetry for Fixed: `interest(p, 0, 1yr) == p × rate × 1` within rounding tolerance for 30/360.
-4. For `EffectiveRate`: round-trip property — recovering APR from a generated schedule matches within four decimal places.
+   - Linearity in balance for Fixed / Floating: `interest(2b) == 2 × interest(b)`, within one cent, because each side rounds once.
+   - Rate × fraction symmetry for Fixed: `interest(b, 0, 1yr) == b × rate × 1` within rounding tolerance for 30/360.
+4. For `EffectiveRate` (once open question #10 is decided): an annuity generated from `EffectiveRate` `R`, with no charges and whole-month periods, has an APRC equal to `R` within the round-trip tolerance in [`aprc.md`](aprc.md#property-based-invariants).

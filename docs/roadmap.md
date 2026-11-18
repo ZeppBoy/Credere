@@ -7,12 +7,13 @@ Credere is built in **milestones**, not calendar phases. Each milestone ends wit
 **Deliverable:** `Credere.Core` and `Credere.Shared` complete. No module logic yet.
 
 ### Acceptance
-- `Money`, `Percentage`, `LoanTerm`, `InterestRate` (fixed, floating, tiered, effective), `DayCountConvention` (five conventions) implemented.
+- `Money`, `Percentage`, `LoanTerm`, `InterestRate` (fixed, floating, tiered, effective; effective depends on [open question #10](open-questions.md)), `DayCountConvention` (five conventions) implemented.
+- `IInterestCalculator` as the single entry point for interest.
 - Annuity, differentiated, bullet schedule generators implemented.
-- `AprcCalculator` implemented, matching EU Consumer Credit Directive illustrative examples to four decimal places.
+- `AprcCalculator` implemented per Directive (EU) 2023/2225 Annex III, reproducing every Directive 98/7/EC worked example at its printed precision.
 - `Result<T, E>`, outbox contracts, idempotency primitives in `Credere.Shared`.
 - `Credere.Core.Tests`: ≥90% line coverage, ≥80% mutation score (Stryker.NET).
-- Reference sources cited in XML docs and tests (ISDA, ECB, EU 2008/48/EC).
+- Reference sources cited in XML docs and tests (ISDA 2006 Definitions and ISDA memoranda, Directive (EU) 2023/2225, Directive 98/7/EC).
 - All property-based invariants pass.
 
 ## M2 — Origination + Servicing modules

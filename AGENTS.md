@@ -105,9 +105,9 @@ Regulatory and market-convention texts (EUR-Lex, ECB, ISDA, EBA, BIS) change and
 - **Number types:** no `double` or `float` in financial math. The one documented exception is the fractional exponent inside the APRC solver ([aprc.md](docs/domain/aprc.md)), which converts back to `decimal` at a single boundary.
 - **Day counts:** day differences in calculations come only from a `DayCountConvention`, never from `Period.Between`, `Period.DaysBetween` or date subtraction.
 - **Interest** goes through `IInterestCalculator`, so every calculation is in one auditable place.
-- **Reference cases:** a day-count convention needs ≥20 vectors from ISDA or ECB sources. APRC must match the official EU examples to four decimal places. Every other calculation needs ≥5 reference cases from a cited source.
+- **Reference cases:** a day-count convention needs ≥20 vectors from ISDA or ECB sources. APRC must reproduce every worked example in Directive 98/7/EC, Annex II, at the precision the example prints ([aprc.md](docs/domain/aprc.md#reference-examples)). Every other calculation needs ≥5 reference cases from a cited source.
 - **Payment allocation** goes fees → past-due interest → current interest → principal, in Servicing's `PaymentAllocationWaterfall` ([doc](docs/domain/payment-allocation.md)). It is present, without stubs, from the first slice that touches payments.
-- **APRC:** `AprcCalculator` follows Directive 2008/48/EC (and 2023/2225 where it applies). Any change re-runs the full reference suite.
+- **APRC:** `AprcCalculator` follows Directive (EU) 2023/2225, Article 30 and Annex III, which replaced Directive 2008/48/EC from 20 November 2026. Any change re-runs the full reference suite.
 - **IFRS 9 staging** lives in `IIfrs9StagingService`. Change it only together with its doc, after discussing it with the owner.
 
 ## 8. Testing
