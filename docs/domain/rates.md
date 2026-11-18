@@ -4,6 +4,8 @@ Interest rates are modelled as a `sealed record` hierarchy rooted at `InterestRa
 
 All live in `src/Credere.Core/Rates/`.
 
+> The sketches below use positional-record syntax for brevity. Implementations follow the construction rules in [`value-objects.md`](value-objects.md): get-only properties plus a static `Create(...)` returning `Result<T, DomainError>`. That way a `with` expression can't bypass an invariant such as `NominalRate ≤ 100%`.
+
 ## `InterestRate` (abstract root)
 
 ```csharp

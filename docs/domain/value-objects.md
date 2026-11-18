@@ -2,7 +2,13 @@
 
 Credere's shared kernel exposes a small set of immutable value objects. Every domain method that would otherwise accept a `decimal`, `int`, or raw `string` of currency uses one of these instead.
 
-All live in `src/Credere.Core/ValueObjects/`. All are `sealed record`s. All validate their invariants in the constructor. All override `ToString()` for readable logs.
+All live in `src/Credere.Core/ValueObjects/`. All are `sealed record`s with get-only properties, and all override `ToString()` for readable logs.
+
+**Construction and failure semantics** follow [ADR-0006](../adr/0006-error-semantics.md):
+
+- **Untrusted input** (anything from a command, request, or file) goes through a static `Create(...)` that returns `Result<T, DomainError>`. An invalid amount, an empty currency, or a currency mismatch at the boundary is an expected failure, so it is reported as a `ValidationError`, never thrown.
+- **Constructors and operators** assume validated input. They still check invariants, but a violation there is a programmer error and throws. This covers mixing currencies in `+`, which can only happen inside the domain after validation was skipped.
+- **No positional parameters** on a type with invariants. A positional record's `with` expression goes through the copy constructor and would bypass validation.
 
 ## `Money`
 
@@ -14,10 +20,10 @@ public sealed record Money
     public decimal Amount { get; }
     public string Currency { get; }
 
-    public Money(decimal amount, string currency);
+    public static Result<Money, DomainError> Create(decimal amount, string currency);
     public static Money Zero(string currency);
 
-    // Arithmetic (same-currency only; cross-currency throws).
+    // Arithmetic (same-currency only; cross-currency is a programmer error and throws).
     public static Money operator +(Money left, Money right);
     public static Money operator -(Money left, Money right);
     public static Money operator *(Money money, decimal factor);
@@ -36,7 +42,8 @@ public sealed record Money
 
 - `Currency` is non-null, non-empty. ISO 4217 alpha-3 codes expected but not enforced here (callers may use `"EUR"`, `"USD"`, etc.).
 - `Amount` is stored to **two decimal places** using banker's rounding (`MidpointRounding.ToEven`). This matches most retail-banking conventions; currencies with other minor-unit scales will require a dedicated subclass or adjustment — deliberately out of scope.
-- Arithmetic across different currencies throws `InvalidOperationException`. Cross-currency conversion is explicit and goes through an `IFxConverter` (not in scope for this project — out of the non-goals).
+- Because rounding happens on creation, **every place that creates a `Money` is a rounding point**. Intermediate calculation (rate × day-count fraction, per-day accrual) stays in `decimal`, and a `Money` is produced only where a domain doc defines the rounding point.
+- Arithmetic across different currencies throws `InvalidOperationException`, because it is a programmer error (see above). A currency mismatch in untrusted input is caught earlier by `Create(...)` or command validation and returned as a `ValidationError`. Cross-currency conversion is explicit and goes through an `IFxConverter` (not in scope for this project — out of the non-goals).
 
 ### Properties tested via FsCheck.Xunit
 
