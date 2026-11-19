@@ -62,3 +62,6 @@ logs/
 CLAUDE.local.md
 .claude/settings.local.json
 docs/working-notes/
+
+# Owned paths of the task in this worktree (AGENTS.md §16); local to each worktree
+.task-paths

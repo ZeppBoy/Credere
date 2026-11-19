@@ -5,6 +5,8 @@ Maintainers: tuned for current Claude models (written against Claude Sonnet 5.5,
 Plain register on purpose: current models follow instructions literally and over-apply capitalised
 or bolded emphasis, so rules carry their reason instead. Re-audit with `/doctor prompt-audit`
 whenever the default model changes. Changes need owner approval via PR.
+Codex reads only this file (CLAUDE.md is Claude-only) and caps it at 32 KiB (project_doc_max_bytes), so
+rules every tool must follow belong here, and the file should stay under about 28 KiB.
 -->
 
 This file applies to every AI coding agent and every human contributor. Delivery status is in [`docs/status.md`](docs/status.md), milestones in [`docs/roadmap.md`](docs/roadmap.md), and the design in [`docs/architecture.md`](docs/architecture.md) and [`docs/adr/`](docs/adr/). If a rule here seems wrong for your task, ask the owner instead of working around it.
@@ -180,3 +182,51 @@ Ask the owner when:
 - it's unclear which module owns a behaviour
 
 Describe what you were doing, what blocks you, the options, and your recommendation with its reasons. Then wait for the answer.
+
+## 13. Changes that need the owner's approval first
+
+Propose a plan and wait for the owner's approval before changing any of these:
+- financial calculations in `Credere.Core`
+- security or compliance logic
+- a public API signature
+- module boundaries
+- a test or a dependency
+- the agent instructions and configuration: `AGENTS.md`, `CLAUDE.md`, `.claude/`, `.codex/`, `.githooks/`
+
+These decide whether the project is credible to its reviewers, and the owner wants to see them before they happen. Other changes go ahead without asking. Claude Code uses plan mode for this. Other tools post the plan in the session (or on the task's PR) and wait for the answer. An approved milestone plan in `docs/plans/` counts as approval for the new files each of its tasks lists; the PR is still reviewed.
+
+For a milestone-sized request such as "build the Servicing module", start by proposing a breakdown for approval: value objects, state transitions, commands and events, invariants, and an order. Then implement one slice at a time, with tests in each slice.
+
+## 14. What to run for each change
+
+| Changed | Run |
+|---|---|
+| `Credere.Core` / `Credere.Shared` | `dotnet test tests/Credere.Core.Tests` (or `tests/Credere.Shared.Tests`) |
+| A module | `dotnet test tests/Credere.Modules.<X>.Tests` and `dotnet test tests/Credere.ArchitectureTests` |
+| Cross-module, or before the final report | `dotnet test` from the root and `dotnet format Credere.slnx --verify-no-changes` |
+
+Integration tests need Docker, so check `docker ps` first. For banking semantics, cite the reference source ("matches ECB example 3, §2.1"); without one, say the result is not verified and ask the owner to review it.
+
+## 15. Area rules
+
+Each area has a short procedure file under `.claude/rules/`. Claude Code loads them automatically by path. Every other tool reads the matching file before its first edit in that area. The `paths:` list at the top of each file is authoritative; this table summarises it.
+
+| Before editing | Read |
+|---|---|
+| `src/Credere.Core/**`, `tests/Credere.Core.Tests/**`, `docs/domain/**`, or any file whose name contains `Interest`, `DayCount`, `Aprc`, `Schedule`, `Allocation` or `Ifrs9` | `.claude/rules/financial-math.md` |
+| `tests/**` | `.claude/rules/testing.md` |
+| `src/Credere.Modules.*/**`, `tests/Credere.Modules.*/**`, `docs/modules/**`, `docs/domain/loan-lifecycle.md` | `.claude/rules/modules.md` |
+| `**/Infrastructure/**`, `**/Migrations/**`, or any file whose name contains `DbContext`, `Repository` or `Outbox` | `.claude/rules/persistence.md` |
+| `src/Credere.Api/**`, `src/Credere.Batch/**`, `src/Credere.Mcp/Program.cs`, `tests/Credere.Integration.Tests/**` | `.claude/rules/hosts.md` |
+| `src/Credere.Modules.Ai/**`, `src/Credere.Mcp/**`, `src/Credere.Ai.Evals/**`, `tests/Credere.Modules.Ai.Tests/**`, `docs/ai/**` | `.claude/rules/ai-layer.md` |
+| `web/**`, `docs/frontend.md` | `.claude/rules/frontend.md` |
+
+## 16. Parallel work
+
+Several agents, from different vendors, can work on Credere at once. When you work on a task from a milestone plan, [`docs/parallel-development.md`](docs/parallel-development.md) applies in full. The rules that matter most:
+
+- One task, one worktree, one branch. Never work in another agent's worktree or branch.
+- Before the first edit, write the task's owned paths to `.task-paths` in the worktree root, one glob per line. It is gitignored, and the pre-commit hook rejects any staged file outside it. Change nothing outside your owned paths; if the task needs that, stop and comment on the issue.
+- Shared state lives in the task's GitHub issue and pull request. `docs/working-notes/` is local to one worktree, so a handoff written there is lost to the next session.
+- A reference-vector set or a PR is checked by an agent from a different vendor than the one that wrote it, so errors in the two are less likely to coincide.
+- The git hooks in `.githooks/` are the shared gate for every tool. Never bypass them with `--no-verify`; if a hook blocks you, report why.

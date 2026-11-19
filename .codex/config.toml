@@ -1,0 +1,19 @@
+# Codex project settings for Credere. They mirror .claude/settings.json where Codex has an equivalent;
+# AGENTS.md holds the rules themselves, and .githooks/ is the gate every tool shares.
+#
+# Codex loads this file and .codex/rules/ only when the project is trusted. Every Rider Air or
+# `git worktree` checkout is its own path, so check it with /status in a new worktree session
+# (docs/parallel-development.md, "Codex").
+
+# Financial correctness outweighs speed here, the same reason Claude runs at effort "high".
+model_reasoning_effort = "high"
+
+# The model asks before running anything the sandbox does not allow.
+approval_policy = "on-request"
+
+# Write inside the worktree only.
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+# NuGet restore, pnpm and the gh CLI (task claims, pull requests) need the network.
+network_access = true
