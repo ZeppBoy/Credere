@@ -83,7 +83,7 @@ public sealed record Percentage
 - Addition is same-unit only (both as percent values, no mixing with fractions).
 - `-` throws when the difference would be negative, for the same reason as the constructor.
 - `Create` reports a negative value as a `ValidationError` on field `value`.
-- No rounding happens in this type. A caller that needs a rounded percentage (for example the APRC disclosure) rounds explicitly with a stated `MidpointRounding`.
+- This type applies no explicit rounding. `Fraction` and the operators keep the precision of `decimal`, which is 28 to 29 significant digits, so a value near that limit can lose digits in `Fraction` (`0.0000000000000000000000000001m / 100m` is `0m`). A caller that needs a rounded percentage (for example the APRC disclosure) rounds explicitly with a stated `MidpointRounding`.
 - `ToString()` gives the percent number without trailing zeros and a percent sign: `5.25%`.
 
 ### Why store as percent, not fraction?

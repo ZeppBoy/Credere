@@ -9,8 +9,10 @@ namespace Credere.Core.ValueObjects;
 /// </summary>
 /// <remarks>
 /// Passing a fraction such as <c>0.0525m</c> to the constructor would be a 100× error. Use
-/// <see cref="FromFraction"/> for fractions and <see cref="Fraction"/> to read one back. No rounding happens in this
-/// type: callers that need a rounded percentage round explicitly, with a stated <see cref="MidpointRounding"/>.
+/// <see cref="FromFraction"/> for fractions and <see cref="Fraction"/> to read one back. This type applies no explicit
+/// rounding and keeps the precision of <see cref="decimal"/>, so a value near its 28-digit limit can lose digits in
+/// <see cref="Fraction"/>. Callers that need a rounded percentage round explicitly, with a stated
+/// <see cref="MidpointRounding"/>.
 /// </remarks>
 public sealed record Percentage
 {
