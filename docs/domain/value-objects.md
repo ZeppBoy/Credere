@@ -92,7 +92,7 @@ Human-readable logs and UI labels want `"5.25%"`. Converting at every boundary i
 
 ## `LoanTerm`
 
-**Status:** Implemented (M1-03), except `ToYearsRounded()`, which waits for the owner to define its rounding rule (AGENTS.md §7).
+**Status:** Implemented (M1-03).
 
 The duration of a loan expressed in whole months.
 
@@ -106,7 +106,6 @@ public sealed record LoanTerm
     public static LoanTerm FromYears(int years);     // = FromMonths(years * 12).
 
     public LocalDate AddTo(LocalDate start);
-    public int ToYearsRounded();
 }
 ```
 
@@ -117,7 +116,8 @@ The constructor is private. C# doesn't allow a static method with the same name 
 - `Months >= 1`.
 - `Months <= 600` (50-year sanity ceiling; raise with documentation if a real product needs longer).
 - `Create` returns a `ValidationError` on field `months` for a value outside this range. The trusted factories throw `ArgumentOutOfRangeException` instead; `FromYears` accepts 1 to 50 years.
-- `AddTo(start)` is NodaTime's `LocalDate.PlusMonths(Months)`: it keeps the day of the month and, when the target month is shorter, moves to the last day of that month (31 January plus one month is 28 or 29 February). This is the same interim month-end rule `aprc.md` uses, pending [open question #9](../open-questions.md).
+- There is no `ToYearsRounded()`: the owner dropped it from the contract on 2026-11-19. A caller that needs years computes them from `Months` and states its own rounding.
+- `AddTo(start)` is NodaTime's `LocalDate.PlusMonths(Months)`: it keeps the day of the month and, when the target month is shorter, moves to the last day of that month (31 January plus one month is 28 or 29 February). This is the same interim month-end rule `aprc.md` uses, pending [open question #9](../open-questions.md). The owner accepted this on 2026-11-19; it is revisited if the APRC month-end decision changes it.
 
 ### Why months, not an arbitrary period?
 
