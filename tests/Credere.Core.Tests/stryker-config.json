@@ -1,0 +1,6 @@
+{
+  "stryker-config": {
+    "project": "Credere.Core.csproj",
+    "reporters": ["progress", "html", "json"]
+  }
+}

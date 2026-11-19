@@ -4,5 +4,6 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="NodaTime" />
+    <InternalsVisibleTo Include="Credere.Core.Tests" />
   </ItemGroup>
 </Project>

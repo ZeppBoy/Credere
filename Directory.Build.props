@@ -8,8 +8,7 @@
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <!-- CS1591: missing XML docs on public members (silenced until modules land).
-         CA1716: identifier-conflict with VB.NET reserved words (we are .NET-only). -->
-    <NoWarn>$(NoWarn);CS1591;CA1716</NoWarn>
+    <!-- CA1716: identifier-conflict with VB.NET reserved words (we are .NET-only). -->
+    <NoWarn>$(NoWarn);CA1716</NoWarn>
   </PropertyGroup>
 </Project>
