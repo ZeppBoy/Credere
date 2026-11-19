@@ -16,9 +16,9 @@ Use `coverlet.collector` in the test projects, run through the standard test com
 dotnet test --collect:"XPlat Code Coverage"
 ```
 
-- The package is added to the test projects in M1-00 (tooling), with its version in `Directory.Packages.props`.
+- M1-00 (tooling) adds the package to `Credere.Core.Tests` and `Credere.Shared.Tests` only, with its version in `Directory.Packages.props`. The module test projects adopt it in M2, when they get tests and the ≥85% module target becomes measurable.
 - It is a test-only dependency. No production project references it.
-- The coverage targets in AGENTS.md §8 are read from its report. A coverage report is evidence for the targets, not a replacement for the tests AGENTS.md §8 requires: a high number on untested edge cases still fails review.
+- The AGENTS.md §8 targets are read from its report: Core and Shared from M1, module Application and Domain code from M2. A coverage report is evidence for the targets, not a replacement for the tests AGENTS.md §8 requires: a high number on untested edge cases still fails review.
 
 ## Consequences
 

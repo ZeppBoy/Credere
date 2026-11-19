@@ -47,7 +47,7 @@ Three hosts share the monolith's binaries but run separately:
                                     │
                             ┌───────┴───────┐
                             │ Credere.Core  │   NodaTime-only kernel: value objects, math, Result
-                            │ Credere.Shared│   Event and command markers (BCL-only)
+                            │ Credere.Shared│   Time-free event + command abstractions
                             └───────────────┘
 ```
 

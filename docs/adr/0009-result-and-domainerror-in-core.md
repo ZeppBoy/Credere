@@ -10,7 +10,7 @@ Separately, ADR-0006 declares `InvalidStateTransition(object FromState, …)`. A
 
 ## Decision
 
-1. `Result<T, E>`, `Unit` and the `DomainError` hierarchy (`ValidationError`, `InvalidStateTransition`, `ConcurrencyConflict`, `NotFound`, `ConflictingTerms`) live in `Credere.Core`, under `Results/`. They are BCL-only code, so Core's dependency rule (NodaTime only) is unchanged. No architecture test changes.
+1. `Result<T, E>`, `Unit`, the `DomainError` base record and the common error records ADR-0006 lists (`ValidationError`, `InvalidStateTransition`, `ConcurrencyConflict`, `NotFound`, `ConflictingTerms`) live in `Credere.Core`, under `Results/`. Module-specific errors are not part of this move: as ADR-0006 says, a new error type extends `DomainError` in the owning module, and as [ADR-0008](0008-module-public-contracts.md) says, it is public when the module's facade exposes it (for example `UnderwritingPolicyError`). The moved types are BCL-only code, so Core's dependency rule (NodaTime only) is unchanged. No architecture test changes.
 2. Modules already reference `Credere.Core`, so every module and host sees these types without a new reference.
 3. `InvalidStateTransition` takes the state as `string`:
 
@@ -26,10 +26,12 @@ Separately, ADR-0006 declares `InvalidStateTransition(object FromState, …)`. A
 ## Consequences
 
 - **Pros**
+  - One rule for where an error type goes: common errors in Core, module-specific errors in their module.
   - M1 compiles with the dependency rules and the architecture tests exactly as they are.
   - The error vocabulary sits next to the value objects that produce it.
   - The `object` in a public API type is gone.
 - **Costs**
+  - Contract examples outside this ADR's scope still show the old shapes: `new InvalidStateTransition(state, …)` in `domain/loan-lifecycle.md` passes a state value, and `architecture.md` §8 shows a separate public `Error` DTO where `modules/origination.md` returns `DomainError`. They are aligned in a follow-up contract task, M1-C1, not here.
   - `Credere.Core` is no longer only math and value objects; it also holds the result type. Core stays small and BCL/NodaTime-only, so the "shared kernel" description still holds.
   - Code that read ADR-0006 and the earlier docs as "Result is in Shared" is wrong. The D1 lines in `architecture.md`, `roadmap.md` and AGENTS.md §3 are updated together with this ADR.
 - **Rejected alternative**
