@@ -10,6 +10,8 @@ This directory is the authoritative description of Credere's intent, architectur
 - [`roadmap.md`](roadmap.md) — milestones and their acceptance criteria.
 - [`status.md`](status.md) — one living document describing what actually works today.
 - [`open-questions.md`](open-questions.md) — undecided design questions. Replaces "proposed" ADRs.
+- [`parallel-development.md`](parallel-development.md) — how several agents work at once: worktrees, task claims, file ownership, merging. (Proposed)
+- [`plans/`](plans/README.md) — milestone task breakdowns with dependencies and owned paths. (Proposed)
 
 ### Domain — shared banking concepts
 - [`domain/value-objects.md`](domain/value-objects.md) — Money, Percentage, LoanTerm.
