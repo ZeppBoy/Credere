@@ -55,6 +55,8 @@ public sealed record Money
 
 ## `Percentage`
 
+**Status:** Implemented (M1-03).
+
 A dimensionless ratio, with explicit unit awareness.
 
 ```csharp
@@ -79,12 +81,18 @@ public sealed record Percentage
 
 - `Value` is non-negative. Negative percentages (credit-side rebates) are out of scope and will be modelled explicitly if needed. `Create` returns a `ValidationError` for a negative value; the constructor and `FromFraction` throw, because a negative value there is a programmer error.
 - Addition is same-unit only (both as percent values, no mixing with fractions).
+- `-` throws when the difference would be negative, for the same reason as the constructor.
+- `Create` reports a negative value as a `ValidationError` on field `value`.
+- This type applies no explicit rounding. `Fraction` and the operators keep the precision of `decimal`, which is 28 to 29 significant digits, so a value near that limit can lose digits in `Fraction` (`0.0000000000000000000000000001m / 100m` is `0m`). A caller that needs a rounded percentage (for example the APRC disclosure) rounds explicitly with a stated `MidpointRounding`.
+- `ToString()` gives the percent number without trailing zeros and a percent sign: `5.25%`.
 
 ### Why store as percent, not fraction?
 
 Human-readable logs and UI labels want `"5.25%"`. Converting at every boundary is noise. We keep the percent form internal and expose `.Fraction` for math.
 
 ## `LoanTerm`
+
+**Status:** Implemented (M1-03).
 
 The duration of a loan expressed in whole months.
 
@@ -98,7 +106,6 @@ public sealed record LoanTerm
     public static LoanTerm FromYears(int years);     // = FromMonths(years * 12).
 
     public LocalDate AddTo(LocalDate start);
-    public int ToYearsRounded();
 }
 ```
 
@@ -108,7 +115,9 @@ The constructor is private. C# doesn't allow a static method with the same name 
 
 - `Months >= 1`.
 - `Months <= 600` (50-year sanity ceiling; raise with documentation if a real product needs longer).
-- `Create` returns a `ValidationError` for a value outside this range. The trusted factories throw instead.
+- `Create` returns a `ValidationError` on field `months` for a value outside this range. The trusted factories throw `ArgumentOutOfRangeException` instead; `FromYears` accepts 1 to 50 years.
+- There is no `ToYearsRounded()`: the owner dropped it from the contract on 2026-11-19. A caller that needs years computes them from `Months` and states its own rounding.
+- `AddTo(start)` is NodaTime's `LocalDate.PlusMonths(Months)`: it keeps the day of the month and, when the target month is shorter, moves to the last day of that month (31 January plus one month is 28 or 29 February). This is the same interim month-end rule `aprc.md` uses, pending [open question #9](../open-questions.md). The owner accepted this on 2026-11-19; it is revisited if the APRC month-end decision changes it.
 
 ### Why months, not an arbitrary period?
 
