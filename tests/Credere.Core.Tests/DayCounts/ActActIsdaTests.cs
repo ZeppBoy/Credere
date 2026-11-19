@@ -1,10 +1,20 @@
+using Credere.Core.DayCounts;
+using FsCheck.Xunit;
+using NodaTime;
+using NodaTime.Text;
 using Xunit;
 
 namespace Credere.Core.Tests.DayCounts;
 
-/// <summary>Reference data for the Actual/Actual (ISDA) convention.</summary>
-public sealed class ActActIsdaTests
+/// <summary>Tests the Actual/Actual (ISDA) convention.</summary>
+public sealed class ActActIsdaTests : DayCountConventionPropertiesBase
 {
+    /// <inheritdoc />
+    protected override DayCountConvention Convention { get; } = new ActActIsda();
+
+    /// <inheritdoc />
+    protected override bool RequiresStrictIncrease => true;
+
     /// <summary>Gets dates, expected year fractions, and published interest on £10,000 at 10%.</summary>
     // Published examples selected in docs/domain/day-counts.md from ISDA-BS:9951.1, November 1998, §4.
     // Fractions are the published expressions evaluated to 12 decimal places, with an exclusive end date.
@@ -41,4 +51,38 @@ public sealed class ActActIsdaTests
         { "2023-12-15", "2025-01-15", 1.084931506849m }, // (17 Dec days + 14 Jan days)/365 + 366/366.
         { "1999-07-01", "2004-07-01", 5.001377348604m }, // (184 + 3 × 365)/365 + (366 + 182)/366.
     };
+
+    [Theory]
+    [MemberData(nameof(PublishedVectors))]
+    public void Fraction_PublishedPeriod_MatchesExpectedFractionAndInterest(
+        string start,
+        string end,
+        decimal expectedFraction,
+        decimal expectedInterest)
+    {
+        var startDate = LocalDatePattern.Iso.Parse(start).Value;
+        var endDate = LocalDatePattern.Iso.Parse(end).Value;
+        var fraction = Convention.Fraction(startDate, endDate);
+
+        Assert.Equal(expectedFraction, Math.Round(fraction, 12, MidpointRounding.ToEven));
+        Assert.Equal(expectedInterest, Math.Round(10_000m * 0.10m * fraction, 2, MidpointRounding.ToEven));
+        Assert.Equal(fraction, Convention.Fraction(
+            startDate.WithCalendar(CalendarSystem.Julian), endDate.WithCalendar(CalendarSystem.Julian)));
+    }
+
+    [Theory]
+    [MemberData(nameof(FormulaDerivedVectors))]
+    public void Fraction_FormulaDerivedPeriod_MatchesExpected(string start, string end, decimal expected)
+    {
+        var fraction = Convention.Fraction(LocalDatePattern.Iso.Parse(start).Value, LocalDatePattern.Iso.Parse(end).Value);
+
+        Assert.Equal(expected, Math.Round(fraction, 12, MidpointRounding.ToEven));
+    }
+
+    [Property]
+    public bool Fraction_SplitPeriod_IsAdditive(ushort startOffset, ushort firstLength, ushort secondLength) =>
+        FractionsAreAdditive(startOffset, firstLength, secondLength);
+
+    [Fact]
+    public void Name_ReturnsMarketName() => Assert.Equal("ACT/ACT (ISDA)", Convention.Name);
 }
