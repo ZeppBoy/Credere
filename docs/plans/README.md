@@ -1,12 +1,12 @@
 # Milestone plans
 
-**Status:** Proposed (2026-11-19), awaiting owner approval.
+**Status:** Approved (2026-11-19).
 
 Each milestone in the [roadmap](../roadmap.md) gets a plan here before work starts, as AGENTS.md §13 requires for milestone-sized work. A plan breaks the milestone into tasks that several agents can run at once under [`parallel-development.md`](../parallel-development.md).
 
 | Milestone | Plan | Status |
 |---|---|---|
-| M1 — Core math + shared primitives | [`m1.md`](m1.md) | Proposed |
+| M1 — Core math + shared primitives | [`m1.md`](m1.md) | Approved |
 | M2–M7 | [Outline below](#later-milestones-outline); a full plan is written when the previous milestone closes | Outline |
 
 ## The shape of every milestone plan
