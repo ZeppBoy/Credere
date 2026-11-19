@@ -7,12 +7,13 @@ Credere is built in **milestones**, not calendar phases. Each milestone ends wit
 **Deliverable:** `Credere.Core` and `Credere.Shared` complete. No module logic yet.
 
 ### Acceptance
-- `Money`, `Percentage`, `LoanTerm`, `InterestRate` (fixed, floating, tiered, effective; effective depends on [open question #10](open-questions.md)), `DayCountConvention` (five conventions) implemented.
+- `Money`, `Percentage`, `LoanTerm`, `InterestRate` (fixed, floating, tiered; `EffectiveRate` is deferred out of M1, see [open question #10](open-questions.md)), `DayCountConvention` (five conventions) implemented.
 - `IInterestCalculator` as the single entry point for interest.
 - Annuity, differentiated, bullet schedule generators implemented.
 - `AprcCalculator` implemented per Directive (EU) 2023/2225 Annex III, reproducing every Directive 98/7/EC worked example at its printed precision.
-- `Result<T, E>`, outbox contracts, idempotency primitives in `Credere.Shared`.
-- `Credere.Core.Tests`: ≥90% line coverage, ≥80% mutation score (Stryker.NET).
+- `Result<T, E>`, `Unit` and the `DomainError` hierarchy in `Credere.Core` ([ADR-0009](adr/0009-result-and-domainerror-in-core.md)).
+- Integration-event marker, `[Version(n)]`, `IIntegrationEventHandler<T>` and command marker (`CommandId`) in `Credere.Shared`. The outbox and receipt rows are module infrastructure, built in M2.
+- `Credere.Core.Tests`: ≥90% line coverage, ≥80% mutation score (Stryker.NET). Line coverage is measured with `coverlet.collector` ([ADR-0010](adr/0010-coverage-tool-coverlet-collector.md)).
 - Reference sources cited in XML docs and tests (ISDA 2006 Definitions and ISDA memoranda, Directive (EU) 2023/2225, Directive 98/7/EC).
 - All property-based invariants pass.
 

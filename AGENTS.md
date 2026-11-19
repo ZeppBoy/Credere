@@ -45,7 +45,7 @@ Credere is a modular monolith: one deployable with five bounded-context modules,
 - When an architecture test blocks a change, the dependency needs redesigning, usually as an integration event. Weakening the test would hide the problem the test exists to catch.
 
 ```
-src/   Credere.Core (value objects, math) · Credere.Shared (Result, outbox, idempotency)
+src/   Credere.Core (value objects, math, Result, DomainError) · Credere.Shared (event and command markers)
        Credere.Modules.{Origination,Servicing,Documents,Reporting,Ai}
        Credere.Api · Credere.Batch · Credere.Mcp (hosts) · Credere.Ai.Evals (eval console)
 tests/ Credere.{Core,Shared}.Tests · Credere.Modules.*.Tests · Credere.Integration.Tests · Credere.ArchitectureTests
