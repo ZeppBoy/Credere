@@ -19,7 +19,7 @@ This document describes how two or more AI coding agents (Claude Code and Codex,
 | Role | Who | Does | Does not |
 |---|---|---|---|
 | **Owner** | Human | Decides open questions. Approves plans, reference vectors and PRs. Merges. | — |
-| **Coordinator** | The owner, or one agent session in the main checkout | Creates and labels task issues. Moves issues to `ready` when their dependencies merge. Tells open PRs to rebase. Updates `docs/status.md`. Runs each milestone's close-out task. | Implement a task while also coordinating. |
+| **Coordinator** | The owner, or one agent session in the main checkout | Creates and labels task issues. Moves gated issues to `ready` once the owner decides; the `Unblock tasks` workflow moves the rest. Tells open PRs to rebase. Updates `docs/status.md`. Runs each milestone's close-out task. | Implement a task while also coordinating. |
 | **Implementer** | 2–3 agent sessions, each in its own worktree | Claims one `ready` task, implements it inside the task's owned paths, opens a PR. | Edit paths it doesn't own, merge, or push to `main`. |
 | **Reviewer** | An agent session from the other vendor than the PR's author, often the other implementer between tasks | Reviews PRs that are ready (`/code-review` in Claude Code, `/review` in Codex). Recomputes reference vectors independently before the owner sees them. | Fix the code it reviews in the same PR, or review work from its own vendor. |
 
@@ -93,7 +93,18 @@ An implementer works through these steps:
 4. **Implement** inside the task's owned paths, with Conventional Commits. For non-financial tasks, open the draft PR at the first push.
 5. **Rebase and check.** Rebase on `origin/main`, then run the [checks](#checks).
 6. **Ask for review.** Complete the [PR description](#pr-description-template), run `gh pr ready <n>`, and move the issue from `claimed` to `in-review`.
-7. **After the merge,** the coordinator moves newly unblocked issues to `ready` and comments on open PRs that depend on the merged task, so their authors rebase.
+7. **After the merge,** the `Unblock tasks` workflow (`.github/workflows/unblock-tasks.yml`) moves every `blocked` issue whose dependencies are all closed as completed, and whose gate is `—`, to `ready`. It reads the `Depends on:` and `Gate:` fields from the first line of the issue body, so keep that line in the brief format. A gated issue moves when the owner edits its gate to `—` or moves it by hand; an issue without both fields, or one that depends on a task closed as not planned, is left for the coordinator. The coordinator also comments on open PRs that depend on the merged task, so their authors rebase.
+
+### Working continuously
+
+An implementer doesn't have to stop at each gate. Given a lane (a list of tasks in the milestone plan), it loops:
+
+1. On its own open PRs: implement when the owner has approved the vectors; address review comments.
+2. On the other vendor's PRs that wait for review: recompute the vectors independently or review the code, and comment. It never changes their files.
+3. Otherwise, with fewer than two open PRs of its own, it claims the next `ready` task in its lane (or any `ready` task when the lane has none), starts a fresh branch from `origin/main` in its worktree, rewrites `.task-paths` for the new task, writes the vectors first and opens a draft PR.
+4. When nothing is actionable, it posts a short status comment on its open PRs and stops.
+
+The limit of two open PRs keeps unreviewed work and rebases small. Every gate stays in place: vectors before code, cross-vendor checks, the hooks, and the owner's merge. A long session loses detail as its context fills, so the implementer writes a handoff comment on its current PR after every three tasks, and the next task starts in a fresh session.
 
 **Handoff.** An implementer that stops before finishing (the session ends, the context fills up, or it is blocked) writes a handoff comment on the PR. The comment covers what is done, what comes next, and any open problems. The next session continues from the PR, not from local notes.
 
