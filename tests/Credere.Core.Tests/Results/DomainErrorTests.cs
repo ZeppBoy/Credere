@@ -31,7 +31,27 @@ public sealed class DomainErrorTests
         { new ConflictingTerms("term exceeds product maximum"), "conflicting-terms", "term exceeds product maximum" },
     };
 
-    private sealed record ModuleSpecificError(string Detail) : DomainError("module-specific", Detail);
+    private sealed record ModuleSpecificError : DomainError
+    {
+        public ModuleSpecificError(string detail)
+            : base("module-specific", detail)
+        {
+            Detail = detail;
+        }
+
+        public string Detail { get; }
+    }
+
+    /// <summary>Gets every common error type that ADR-0006 lists, for tests that apply to all of them.</summary>
+    public static TheoryData<Type> CommonErrorTypes => new()
+    {
+        typeof(DomainError),
+        typeof(ValidationError),
+        typeof(InvalidStateTransition),
+        typeof(ConcurrencyConflict),
+        typeof(NotFound),
+        typeof(ConflictingTerms),
+    };
 
     [Theory]
     [MemberData(nameof(CommonErrors))]
@@ -76,6 +96,31 @@ public sealed class DomainErrorTests
         Assert.Equal(new NotFound("Loan", SampleId), new NotFound("Loan", SampleId));
         Assert.NotEqual(new NotFound("Loan", SampleId), new NotFound("Loan", Guid.Empty));
         Assert.NotEqual<DomainError>(new NotFound("Loan", SampleId), new ConcurrencyConflict("Loan", SampleId));
+    }
+
+    [Theory]
+    [MemberData(nameof(CommonErrorTypes))]
+    public void CommonError_propertiesAreGetOnly_soWithCannotDesyncTheMessage(Type errorType)
+    {
+        // AGENTS.md section 6: a positional or init property lets `with { Field = ... }` change a field while the
+        // message still describes the old value. Get-only properties make that a compile error.
+        var properties = errorType
+            .GetProperties(
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public
+                | System.Reflection.BindingFlags.DeclaredOnly)
+            .Where(p => p.Name != "EqualityContract")
+            .ToList();
+
+        Assert.NotEmpty(properties);
+        Assert.All(properties, property => Assert.Null(property.SetMethod));
+    }
+
+    [Fact]
+    public void ValidationError_messageIsBuiltFromTheFieldAndReasonItWasCreatedWith()
+    {
+        var error = new ValidationError("amount", "must be positive");
+
+        Assert.Equal($"{error.Field}: {error.Reason}", error.Message);
     }
 
     [Fact]
