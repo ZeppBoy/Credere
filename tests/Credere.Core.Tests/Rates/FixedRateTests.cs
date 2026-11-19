@@ -1,10 +1,16 @@
+using Credere.Core.DayCounts;
+using Credere.Core.Rates;
+using Credere.Core.Results;
+using Credere.Core.ValueObjects;
+using NodaTime;
+using NodaTime.Text;
 using Xunit;
 
 namespace Credere.Core.Tests.Rates;
 
 /// <summary>
-/// Reference data for <c>FixedRate</c> and <c>IInterestCalculator.Calculate</c> (docs/domain/rates.md, "FixedRate").
-/// The tests that use it come with the implementation, after the owner has approved these vectors.
+/// Tests <see cref="FixedRate"/> through <see cref="InterestCalculator"/> against reference vectors that the owner
+/// approved before the implementation was written (PR #40, 2026-11-19).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -64,10 +70,181 @@ public sealed class FixedRateTests
         { 5m, "ACT/360", 100.00m, "EUR", "2024-01-01", "2024-01-10", 0.12m }, // exact tie 12.5c, floor 12 even, rounds down: 100.00 x 5% x 9/360 = 0.125.
     };
 
-    // Other cases the tests must cover (docs/domain/rates.md, "FixedRate", "IInterestCalculator", "Testing"):
-    //   FixedRate.Create rejects a nominal rate above 100% with a ValidationError; 0% and 100% are accepted.
-    //   Calculate throws ArgumentOutOfRangeException when periodEnd precedes periodStart.
-    //   The result is in the balance's currency.
-    //   Properties: zero balance gives zero; an empty period gives zero; interest(2b) is within one cent of
-    //   2 x interest(b), because each side rounds once.
+    /// <summary>
+    /// Gets rate in percent, convention name, balance, number of days from 2024-01-01, and expected interest, for
+    /// exact half-cent ties under a repeating day-count fraction (added after the owner approved the vectors above).
+    /// </summary>
+    // Each row is an exact tie, derived with integer arithmetic: cents = B x R / 10000 x d / 360, with B in cents and R in
+    // hundredths of a percent. The cents value shown is the exact half-cent figure, and the expected interest goes to
+    // the even cent. Without the snap in InterestRate.ToMoney, a 28-digit fraction such as 20/360 sits a hair above
+    // or below the tie, and all 6 of these rows round the wrong way; a scan of 13.5 million exact ties found about 30% wrong.
+    public static TheoryData<decimal, string, decimal, int, decimal> RepeatingFractionTieVectors => new()
+    {
+        { 0.06m, "ACT/360", 1950.00m, 20, 0.06m }, // 6.5 cents: floor 6 even, down.
+        { 0.06m, "ACT/360", 1931.25m, 160, 0.52m }, // 51.5 cents: floor 51 odd, up.
+        { 0.06m, "ACT/360", 1935.00m, 200, 0.64m }, // 64.5 cents: floor 64 even, down.
+        { 0.07m, "ACT/360", 1912.50m, 160, 0.60m }, // 59.5 cents: floor 59 odd, up.
+        { 0.07m, "ACT/360", 1710.00m, 200, 0.66m }, // 66.5 cents: floor 66 even, down.
+        { 0.07m, "ACT/360", 1800.00m, 110, 0.38m }, // 38.5 cents: floor 38 even, down.
+    };
+
+    private static readonly InterestCalculator Calculator = new();
+
+    private static DayCountConvention Convention(string name) => name switch
+    {
+        "ACT/360" => new Act360(),
+        "ACT/365 Fixed" => new Act365Fixed(),
+        "ACT/ACT (ISDA)" => new ActActIsda(),
+        "30/360 ISDA" => new Thirty360Isda(),
+        "30E/360" => new ThirtyE360(),
+        _ => throw new ArgumentOutOfRangeException(nameof(name), name, "Unknown convention in the vector data."),
+    };
+
+    private static LocalDate Date(string iso) => LocalDatePattern.Iso.Parse(iso).Value;
+
+    private static Money CalculateFor(
+        decimal ratePercent, string convention, decimal balance, string currency, string start, string end)
+    {
+        var rate = FixedRate.Create(new Percentage(ratePercent), Convention(convention)).Value;
+        var money = Money.Create(balance, currency).Value;
+
+        return Calculator.Calculate(rate, money, Date(start), Date(end));
+    }
+
+    [Theory]
+    [MemberData(nameof(PublishedVectors))]
+    [MemberData(nameof(FormulaDerivedVectors))]
+    public void Calculate_matchesTheReferenceInterest_inTheBalancesCurrency(
+        decimal ratePercent, string convention, decimal balance, string currency, string start, string end,
+        decimal expected)
+    {
+        var interest = CalculateFor(ratePercent, convention, balance, currency, start, end);
+
+        Assert.Equal(expected, interest.Amount);
+        Assert.Equal(currency, interest.Currency);
+    }
+
+    [Fact]
+    public void Calculate_halfCentTie_roundsToTheEvenCent_whenTheProductIsOrderedPrincipalTimesRateFirst()
+    {
+        // 73.00 x 1.5% x 5/365 is exactly 0.015. Multiplying 1.5% by 5/365 first gives 0.01499...96, which would
+        // round down to 0.01; principal times rate first gives 0.015, which ties to the even neighbour 0.02.
+        Assert.Equal(0.02m, CalculateFor(1.5m, "ACT/365 Fixed", 73.00m, "EUR", "2024-01-01", "2024-01-06").Amount);
+    }
+
+    [Theory]
+    [MemberData(nameof(RepeatingFractionTieVectors))]
+    public void Calculate_exactHalfCentTie_underARepeatingFraction_goesToTheEvenCent(
+        decimal ratePercent, string convention, decimal balance, int days, decimal expected)
+    {
+        var end = new LocalDate(2024, 1, 1).PlusDays(days);
+
+        var interest = CalculateFor(ratePercent, convention, balance, "EUR", "2024-01-01", LocalDatePattern.Iso.Format(end));
+
+        Assert.Equal(expected, interest.Amount);
+    }
+
+    [Fact]
+    public void Calculate_justAboveATie_stillRoundsUp_evenWithAManyDigitRate()
+    {
+        // 100.00 x 5.000000000001% x 9/360 is 0.125 plus 2.5e-14: above the tie by far more than decimal noise,
+        // so it must round up to 0.13, not be mistaken for the tie (which would go down to 0.12).
+        Assert.Equal(
+            0.13m,
+            CalculateFor(5.000000000001m, "ACT/360", 100.00m, "EUR", "2024-01-01", "2024-01-10").Amount);
+    }
+
+    [Fact]
+    public void Calculate_justBelowATie_stillRoundsDown()
+    {
+        // 100.00 x 4.999999999999% x 9/360 is 0.125 minus 2.5e-14, which rounds down to 0.12.
+        Assert.Equal(
+            0.12m,
+            CalculateFor(4.999999999999m, "ACT/360", 100.00m, "EUR", "2024-01-01", "2024-01-10").Amount);
+    }
+
+    [Fact]
+    public void ToMoney_tolerance_scalesWithTheMagnitudeOfTheInterest()
+    {
+        // 10,000,000,000.065 is an exact tie (floor 6 even, down). The extra 5e-14 is 1e-11 of a half-cent: far below the
+        // 1e-22 relative tolerance at this magnitude (2e-10 half-cents), so it is noise and the tie goes down.
+        var interest = InterestRate.ToMoney(10_000_000_000.065000000000050m, "EUR");
+
+        Assert.Equal(10_000_000_000.06m, interest.Amount);
+    }
+
+    [Theory]
+    [InlineData("0.065000000000000000000000000052", 0.06)] // Tie plus noise, floor even: down.
+    [InlineData("0.064999999999999999999999999948", 0.06)] // Tie minus noise, floor even: down.
+    [InlineData("0.075000000000000000000000000052", 0.08)] // Tie plus noise, floor odd: up.
+    [InlineData("0.074999999999999999999999999948", 0.08)] // Tie minus noise, floor odd: up.
+    [InlineData("0.0650000001", 0.07)] // Genuinely above the tie: up.
+    [InlineData("0.0649999999", 0.06)] // Genuinely below the tie: down.
+    [InlineData("0.07", 0.07)] // Not near a tie.
+    [InlineData("0", 0)]
+    [InlineData("-0.065000000000000000000000000052", -0.06)] // Negative interest ties the same way.
+    [InlineData("-0.075000000000000000000000000052", -0.08)]
+    public void ToMoney_snapsNoiseOnATieOnly_thenRoundsHalfEvenOnce(string unrounded, double expected)
+    {
+        var interest = InterestRate.ToMoney(
+            decimal.Parse(unrounded, System.Globalization.CultureInfo.InvariantCulture), "EUR");
+
+        Assert.Equal((decimal)expected, interest.Amount);
+        Assert.Equal("EUR", interest.Currency);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(5.25)]
+    [InlineData(100)]
+    public void Create_acceptsRatesFromZeroToOneHundredPercent(double percent)
+    {
+        var result = FixedRate.Create(new Percentage((decimal)percent), new Act360());
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal((decimal)percent, result.Value.NominalRate.Value);
+        Assert.Equal(new Act360(), result.Value.DayCountConvention);
+    }
+
+    [Theory]
+    [InlineData(100.01)]
+    [InlineData(100.0000001)]
+    [InlineData(250)]
+    public void Create_rateAboveOneHundredPercent_returnsAValidationErrorOnNominalRate(double percent)
+    {
+        var result = FixedRate.Create(new Percentage((decimal)percent), new Act360());
+
+        Assert.False(result.IsSuccess);
+        var error = Assert.IsType<ValidationError>(result.Error);
+        Assert.Equal("nominalRate", error.Field);
+        Assert.Contains("100%", error.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Create_nullArguments_throw()
+    {
+        Assert.Throws<ArgumentNullException>(() => FixedRate.Create(null!, new Act360()));
+        Assert.Throws<ArgumentNullException>(() => FixedRate.Create(new Percentage(5m), null!));
+    }
+
+    [Fact]
+    public void Equality_isByRateAndConvention()
+    {
+        var a = FixedRate.Create(new Percentage(5m), new Act360()).Value;
+
+        Assert.Equal(a, FixedRate.Create(new Percentage(5.0m), new Act360()).Value);
+        Assert.NotEqual(a, FixedRate.Create(new Percentage(5.1m), new Act360()).Value);
+        Assert.NotEqual(a, FixedRate.Create(new Percentage(5m), new Act365Fixed()).Value);
+    }
+
+    [Fact]
+    public void ToString_namesTheRateAndTheConvention()
+    {
+        var rate = FixedRate.Create(new Percentage(5.25m), new Act365Fixed()).Value;
+
+        Assert.Equal("5.25% (ACT/365 Fixed)", rate.ToString());
+    }
+
+    // Also covered in InterestCalculatorTests (reversed period, nulls, delegation) and FixedRatePropertiesTests
+    // (zero balance, empty period, linearity within one cent, and an exact-arithmetic oracle).
 }

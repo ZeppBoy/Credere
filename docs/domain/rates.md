@@ -8,6 +8,8 @@ All live in `src/Credere.Core/Rates/`.
 
 ## `IInterestCalculator` — the single entry point
 
+**Status:** Implemented (M1-08).
+
 AGENTS.md §7 says that interest goes through `IInterestCalculator`, so every calculation is in one auditable place. Schedules, accrual and payoff all call it, and nothing else computes interest.
 
 ```csharp
@@ -25,8 +27,11 @@ public interface IInterestCalculator
 - `periodEnd < periodStart` is a programmer error and throws.
 - The rate's formula method is `internal`, so code outside `Credere.Core` can't bypass the calculator. Because the member is `internal abstract`, the hierarchy also can't be extended outside the assembly.
 - **Rounding point:** each call computes in `decimal` and creates exactly one `Money` at the end, which rounds to two places with `MidpointRounding.ToEven` ([value-objects.md](value-objects.md#money)). Per-period interest in a schedule row is that `Money` ([schedules.md](schedules.md)).
+- **Ties.** A repeating day-count fraction such as `20/360` is stored in 28 digits, rounded, so an exact half-cent product can land a hair above or below the tie (1,950.00 × 0.06% × 20/360 is exactly 0.065, but `decimal` gives `0.06500000000000000000000000052`). A scan of 13.5 million exact ties under Actual/360 and Actual/365 Fixed rounded about 30% of them the wrong way. Every subtype therefore creates its `Money` through `InterestRate.ToMoney`, an `internal static` helper that treats a value within 1e-22 of the interest's magnitude of a half-cent as that half-cent, then rounds half-even once. A value that differs from a tie by more than that, for example by 2.5e-14, is rounded as it is. The same scan, repeated with the helper, found no wrong tie in 6.7 million.
 
 ## `InterestRate` (abstract root)
+
+**Status:** Implemented (M1-08).
 
 ```csharp
 public abstract record InterestRate
@@ -44,21 +49,31 @@ public abstract record InterestRate
 
 `NominalRate` is the "quoted" rate (the headline percent a borrower sees for the product). The specific semantics of each subtype determine how `CalculateInterest` uses it.
 
+The root also has `internal static Money ToMoney(decimal interest, string currency)`, the one place a subtype turns its unrounded `decimal` into the returned `Money` (see Ties above). `FloatingRate` and `TieredRate` use it too.
+
 ## `FixedRate`
 
+**Status:** Implemented (M1-08). Reference vectors approved by the owner on 2026-11-19 (PR #40).
+
 ```csharp
-public sealed record FixedRate(
-    Percentage NominalRate,
-    DayCountConvention DayCountConvention) : InterestRate
+public sealed record FixedRate : InterestRate
 {
+    public static Result<FixedRate, DomainError> Create(
+        Percentage nominalRate, DayCountConvention dayCountConvention);
+
     internal override Money CalculateInterest(Money balance, LocalDate s, LocalDate e)
-        => balance * (NominalRate.Fraction * DayCountConvention.Fraction(s, e));
+    {
+        // Left to right: principal times rate first, then the day-count fraction.
+        var interest = balance.Amount * NominalRate.Fraction * DayCountConvention.Fraction(s, e);
+        return ToMoney(interest, balance.Currency);
+    }
 }
 ```
 
 - **Formula:** `interest = balance × rate × dayCountFraction(s, e)`.
+- **Order of evaluation.** The product is evaluated left to right in `decimal`, principal times rate first, and rounded once through `ToMoney`. `balance * (rate * fraction)` is not equivalent: for 73.00 at 1.5% over 5/365 it gives `0.01499…96` and rounds to 0.01, where the exact tie 0.015 goes to 0.02 (found in the vector review of PR #40).
 - **Use case:** standard installment loans.
-- **Invariants:** `NominalRate` ≥ 0, ≤ 100%.
+- **Invariants:** `NominalRate` ≥ 0, ≤ 100%. `Create` returns a `ValidationError` on field `nominalRate` above 100%, and throws `ArgumentNullException` for a null argument.
 
 ## `FloatingRate`
 
