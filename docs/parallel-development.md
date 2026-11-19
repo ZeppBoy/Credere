@@ -1,6 +1,6 @@
 # Parallel development with several agents
 
-**Status:** Proposed (2026-11-19), awaiting owner approval. Until it is approved, agents work one at a time, as before.
+**Status:** Approved (2026-11-19).
 
 This document describes how two or more AI coding agents (Claude Code and Codex, usually run side by side from Rider's Air agent workspace, or any tool that follows [`AGENTS.md`](../AGENTS.md)) and human contributors work on Credere at the same time without blocking each other or breaking `main`. The per-milestone task breakdowns live in [`plans/`](plans/README.md). The rules in AGENTS.md still apply in full, CLAUDE.md adds Claude Code specifics, and this document adds the rules that only matter when several agents run at once. AGENTS.md §16 summarises them for every tool.
 
