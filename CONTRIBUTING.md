@@ -19,12 +19,21 @@ corepack enable pnpm
 pnpm --dir web install && pnpm --dir web build
 ```
 
+Then enable the shared git hooks. They apply to every worktree of the clone and to every tool, agents included:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+`pre-commit` refuses commits on `main`, checks whitespace formatting of staged C# files, and in a task worktree refuses files outside the task's owned paths (`.task-paths`, see [`docs/parallel-development.md`](docs/parallel-development.md)). `pre-push` refuses pushes to `main` and builds the solution. The owner can pass `CREDERE_OWNER=1` to skip the owned-paths and `main` checks.
+
 ## Branches
 
 - `main` is always deployable.
 - Feature branches: `feat/<short-description>`.
 - Fix branches: `fix/<short-description>`.
 - Documentation branches: `docs/<short-description>`.
+- A task from a milestone plan puts its id first: `feat/m1-05-act-act-isda`, `docs/m1-01-result-placement`.
 
 ## Commit messages
 

@@ -44,9 +44,9 @@ prefix_rule(
 )
 
 prefix_rule(
-    pattern = ["git", "push", ["--force", "-f", "--force-with-lease"]],
+    pattern = ["git", "push", ["--force", "-f"]],
     decision = "forbidden",
-    justification = "Force pushes are not allowed; rebase and push a new branch instead.",
+    justification = "Use --force-with-lease to update your own rebased PR branch; a plain force push can overwrite someone else's work.",
 )
 prefix_rule(
     pattern = ["git", "push", "origin", "main"],

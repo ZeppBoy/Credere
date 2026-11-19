@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Shared push gate for every agent and contributor (AGENTS.md §16, docs/parallel-development.md).
+# Enable once per clone:  git config core.hooksPath .githooks
+# Written for the bash 3.2 that ships with macOS.
+set -u
+
+PATH="$PATH:/usr/local/share/dotnet:$HOME/.dotnet:/opt/homebrew/bin:/usr/local/bin"
+
+fail() { printf 'pre-push: %s\n' "$@" >&2; exit 1; }
+
+zero=0000000000000000000000000000000000000000
+build_needed=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$remote_ref" = "refs/heads/main" ] && [ "${CREDERE_OWNER:-}" != "1" ] && \
+    fail "only the owner updates main, by merging a reviewed PR (docs/parallel-development.md, Merging)."
+  [ "$local_sha" != "$zero" ] && build_needed=1
+done
+
+[ $build_needed -eq 1 ] || exit 0
+
+root=$(git rev-parse --show-toplevel) || exit 1
+cd "$root" || exit 1
+
+if ! command -v dotnet >/dev/null 2>&1; then
+  printf 'pre-push: dotnet not found; the build check did not run.\n' >&2
+  exit 0
+fi
+
+# The build treats warnings, analyzer findings and code-style violations as errors.
+printf 'pre-push: dotnet build Credere.slnx\n' >&2
+dotnet build Credere.slnx --nologo -v quiet >/dev/null 2>&1 || \
+  fail "dotnet build Credere.slnx failed. Run it to see the errors; fix them before pushing."
+
+exit 0

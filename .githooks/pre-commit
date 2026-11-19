@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# Shared commit gate for every agent and contributor (AGENTS.md §16, docs/parallel-development.md).
+# Enable once per clone; all worktrees of the clone then use it:  git config core.hooksPath .githooks
+# Written for the bash 3.2 that ships with macOS.
+set -u
+shopt -s extglob
+
+# Git GUIs such as Rider's run hooks with a short PATH.
+PATH="$PATH:/usr/local/share/dotnet:$HOME/.dotnet:/opt/homebrew/bin:/usr/local/bin"
+
+fail() { printf 'pre-commit: %s\n' "$@" >&2; exit 1; }
+
+root=$(git rev-parse --show-toplevel) || exit 1
+cd "$root" || exit 1
+
+branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+[ "$branch" = "main" ] && fail "commit on a task branch, not on main."
+
+staged=$(git diff --cached --name-only --no-renames)
+[ -z "$staged" ] && exit 0
+
+# Turns a glob with {a,b} alternatives into the extglob form @(a|b) that [[ == ]] understands.
+to_extglob() {
+  local g=$1 out="" depth=0 i c
+  for ((i = 0; i < ${#g}; i++)); do
+    c=${g:i:1}
+    case $c in
+      '{') out+='@(' ; depth=$((depth + 1)) ;;
+      '}') out+=')' ; depth=$((depth - 1)) ;;
+      ',') if [ "$depth" -gt 0 ]; then out+='|'; else out+=','; fi ;;
+      *) out+=$c ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+
+# 1. Owned paths. In a linked worktree (a task), every staged path must match a glob in
+#    .task-paths. The main checkout is the owner's and the coordinator's, and is not fenced.
+git_dir=$(cd "$(git rev-parse --git-dir)" && pwd -P)
+common_dir=$(cd "$(git rev-parse --git-common-dir)" && pwd -P)
+if [ "$git_dir" != "$common_dir" ] && [ "${CREDERE_OWNER:-}" != "1" ]; then
+  [ -f .task-paths ] || fail \
+    "this worktree has no .task-paths file." \
+    "Write the task's owned paths to .task-paths, one glob per line, before committing" \
+    "(AGENTS.md §16). '*' also matches '/', and {a,b} lists alternatives."
+  globs=()
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%%#*}
+    line=${line%%+([[:space:]])}
+    line=${line##+([[:space:]])}
+    [ -n "$line" ] && globs+=("$(to_extglob "$line")")
+  done < .task-paths
+  [ ${#globs[@]} -gt 0 ] || fail ".task-paths is empty."
+  outside=""
+  while IFS= read -r f; do
+    ok=0
+    for g in "${globs[@]}"; do
+      # shellcheck disable=SC2053  # $g is a pattern on purpose
+      if [[ $f == $g ]]; then ok=1; break; fi
+    done
+    [ $ok -eq 1 ] || outside+="  $f"$'\n'
+  done <<< "$staged"
+  if [ -n "$outside" ]; then
+    printf 'pre-commit: these staged files are outside the task'"'"'s owned paths (.task-paths):\n%s' "$outside" >&2
+    fail "Unstage them. If the task really needs them, stop and comment on the task's issue" \
+         "(docs/parallel-development.md, Stop conditions)."
+  fi
+fi
+
+# 2. Whitespace formatting of staged C# files. Style and analyzer rules are enforced by the build.
+cs_files=$(git diff --cached --name-only --diff-filter=ACM -- '*.cs')
+if [ -n "$cs_files" ]; then
+  if command -v dotnet >/dev/null 2>&1; then
+    args=()
+    while IFS= read -r f; do args+=("$f"); done <<< "$cs_files"
+    if ! dotnet format whitespace --folder --verify-no-changes --include "${args[@]}" >/dev/null 2>&1; then
+      fail "staged C# files are not formatted. Run:" \
+           "  dotnet format whitespace --folder --include <files>" \
+           "then stage the result."
+    fi
+  else
+    printf 'pre-commit: dotnet not found; the formatting check did not run.\n' >&2
+  fi
+fi
+
+exit 0
