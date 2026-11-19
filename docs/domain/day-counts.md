@@ -16,7 +16,7 @@ Cite these in the XML comment of every implementation file, with the specific pa
 ```csharp
 public abstract record DayCountConvention
 {
-    public abstract string Name { get; }           // "ACT/360", "30/360 ISDA", etc.
+    public abstract string Name { get; }           // "ACT/360", "ACT/365 Fixed", "30/360 ISDA", etc.
 
     /// <summary>
     /// Returns the year fraction between <paramref name="start"/> (inclusive) and
@@ -43,7 +43,9 @@ All implementations:
 
 ## 2. Actual/360
 
-`Act360`. `fraction = (end - start) / 360`.
+**Status:** Implemented (M1-04).
+
+`Act360` (`ACT/360`) divides the actual number of calendar days from the inclusive start to the exclusive end by 360. Leap days count as ordinary days. The reference tests compare fractions rounded to 12 decimal places with `MidpointRounding.ToEven`.
 
 **Use case:** money markets (USD LIBOR convention historically, SOFR today).
 
@@ -51,7 +53,9 @@ All implementations:
 
 ## 3. Actual/365 Fixed
 
-`Act365Fixed`. `fraction = (end - start) / 365`.
+**Status:** Implemented (M1-04).
+
+`Act365Fixed` (`ACT/365 Fixed`) divides the actual number of calendar days from the inclusive start to the exclusive end by 365, including in leap years. The reference tests compare fractions rounded to 12 decimal places with `MidpointRounding.ToEven`.
 
 **Use case:** GBP money markets, many consumer loans.
 
