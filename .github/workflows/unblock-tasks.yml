@@ -1,0 +1,30 @@
+# Moves milestone tasks from `blocked` to `ready` when their dependencies close
+# (docs/parallel-development.md, Task lifecycle). Gated tasks still wait for the owner.
+name: Unblock tasks
+
+on:
+  issues:
+    types: [closed, reopened, edited]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: unblock-tasks
+  cancel-in-progress: false
+
+jobs:
+  unblock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          sparse-checkout: .github/scripts
+      - name: Move unblocked tasks to ready
+        run: python3 .github/scripts/unblock_tasks.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
