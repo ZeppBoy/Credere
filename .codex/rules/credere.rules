@@ -1,0 +1,60 @@
+# Command rules for Codex on Credere, mirroring permissions in .claude/settings.json.
+# When several rules match, Codex applies the most restrictive: forbidden > prompt > allow.
+# Rules match a command's leading words, so `git push origin --force` is not caught by the
+# force-push rule below; the pre-push hook in .githooks/ is the backstop for that.
+# Test a command with: codex execpolicy check --pretty --rules .codex/rules/credere.rules -- <command>
+
+# Checks every task runs (AGENTS.md §14).
+prefix_rule(pattern = ["dotnet", ["restore", "build", "test", "format"]], decision = "allow")
+prefix_rule(pattern = ["docker", "ps"], decision = "allow")
+prefix_rule(pattern = ["docker", "compose", "ps"], decision = "allow")
+prefix_rule(pattern = ["pnpm", "--dir", "web", ["lint", "build"]], decision = "allow")
+
+# Reading task state on GitHub (docs/parallel-development.md, "Task lifecycle").
+prefix_rule(pattern = ["gh", "issue", ["list", "view"]], decision = "allow")
+prefix_rule(pattern = ["gh", "pr", ["list", "view", "diff", "checks"]], decision = "allow")
+
+# New dependencies need an ADR and owner approval (AGENTS.md §4).
+prefix_rule(
+    pattern = ["dotnet", "add"],
+    decision = "prompt",
+    justification = "A new dependency needs an ADR and owner approval (AGENTS.md §4).",
+)
+prefix_rule(
+    pattern = ["pnpm", "--dir", "web", "add"],
+    decision = "prompt",
+    justification = "A new dependency needs an ADR and owner approval (AGENTS.md §4).",
+)
+
+# Evals call paid models (AGENTS.md §2).
+prefix_rule(
+    pattern = ["dotnet", "run", "--project", "src/Credere.Ai.Evals"],
+    decision = "prompt",
+    justification = "Evals call paid models; ask the owner first (AGENTS.md §2).",
+)
+
+# Destructive or shared-state commands.
+prefix_rule(pattern = ["git", "push"], decision = "prompt")
+prefix_rule(pattern = ["git", "reset", "--hard"], decision = "prompt")
+prefix_rule(pattern = ["git", "clean"], decision = "prompt")
+prefix_rule(
+    pattern = ["docker", "compose", "down"],
+    decision = "prompt",
+    justification = "The docker compose stack is shared by every worktree; the owner starts and stops it.",
+)
+
+prefix_rule(
+    pattern = ["git", "push", ["--force", "-f", "--force-with-lease"]],
+    decision = "forbidden",
+    justification = "Force pushes are not allowed; rebase and push a new branch instead.",
+)
+prefix_rule(
+    pattern = ["git", "push", "origin", "main"],
+    decision = "forbidden",
+    justification = "Only the owner merges to main (docs/parallel-development.md, Merging).",
+)
+prefix_rule(
+    pattern = ["git", "commit", ["--no-verify", "-n"]],
+    decision = "forbidden",
+    justification = "The git hooks are the shared gate for every tool (AGENTS.md §16).",
+)
