@@ -2,7 +2,7 @@
 
 **Status:** Proposed (2026-11-19), awaiting owner approval.
 
-Each milestone in the [roadmap](../roadmap.md) gets a plan here before work starts, as CLAUDE.md requires for milestone-sized work. A plan breaks the milestone into tasks that several agents can run at once under [`parallel-development.md`](../parallel-development.md).
+Each milestone in the [roadmap](../roadmap.md) gets a plan here before work starts, as AGENTS.md §13 requires for milestone-sized work. A plan breaks the milestone into tasks that several agents can run at once under [`parallel-development.md`](../parallel-development.md).
 
 | Milestone | Plan | Status |
 |---|---|---|
