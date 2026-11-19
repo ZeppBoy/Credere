@@ -1,10 +1,16 @@
+using Credere.Core.DayCounts;
+using FsCheck.Xunit;
+using NodaTime.Text;
 using Xunit;
 
 namespace Credere.Core.Tests.DayCounts;
 
-/// <summary>Reference data for the 30E/360 Eurobond convention.</summary>
-public sealed class ThirtyE360Tests
+/// <summary>Tests the 30E/360 Eurobond convention.</summary>
+public sealed class ThirtyE360Tests : DayCountConventionPropertiesBase
 {
+    /// <inheritdoc />
+    protected override DayCountConvention Convention { get; } = new ThirtyE360();
+
     /// <summary>Gets start dates, exclusive end dates, and expected year fractions.</summary>
     // Formula-derived from ISDA 2006 Definitions §4.16(g) (Eurobond Basis).
     // https://www.isda.org/a/smMDE/Blackline-2000-v-2006-ISDA-Definitions.pdf
@@ -38,4 +44,17 @@ public sealed class ThirtyE360Tests
         { "2023-02-28", "2024-02-29", 1.002777777778m }, // (360 + 29 - 28)/360.
         { "2024-01-31", "2025-01-31", 1.000000000000m }, // (360 + 30 - 30)/360.
     };
+
+    [Theory]
+    [MemberData(nameof(ReferenceVectors))]
+    public void Fraction_IsdaReferencePeriod_MatchesExpected(string start, string end, decimal expected)
+    {
+        var actual = Convention.Fraction(LocalDatePattern.Iso.Parse(start).Value, LocalDatePattern.Iso.Parse(end).Value);
+
+        Assert.Equal(expected, Math.Round(actual, 12, MidpointRounding.ToEven));
+    }
+
+    [Property]
+    public bool Fraction_SplitPeriod_IsAdditive(ushort startOffset, ushort firstLength, ushort secondLength) =>
+        FractionsAreAdditive(startOffset, firstLength, secondLength);
 }
