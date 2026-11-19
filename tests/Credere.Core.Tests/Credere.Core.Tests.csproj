@@ -3,6 +3,8 @@
     <ProjectReference Include="..\..\src\Credere.Core\Credere.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="coverlet.collector" PrivateAssets="all" />
     <PackageReference Include="FsCheck.Xunit" />
+    <PackageReference Include="Verify.Xunit" />
   </ItemGroup>
 </Project>
