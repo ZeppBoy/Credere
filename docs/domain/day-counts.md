@@ -63,7 +63,9 @@ All implementations:
 
 ## 4. 30/360 ISDA (Bond Basis)
 
-`Thirty360Isda`. All months treated as 30 days, all years as 360 days.
+**Status:** Implemented (M1-06).
+
+`Thirty360Isda` (`30/360 ISDA`) weights year differences by 360 days and month differences by 30 days. The start day determines whether an end day of 31 is adjusted. February dates retain their day of month.
 
 Day-count numerator per ISDA:
 
@@ -80,7 +82,9 @@ fraction = numerator / 360
 
 ## 5. 30E/360 (Eurobond)
 
-`ThirtyE360`. Similar to ISDA Bond Basis but with a simpler end-of-month treatment:
+**Status:** Implemented (M1-06).
+
+`ThirtyE360` (`30E/360`) uses the same formula for the year and month differences. Each endpoint's day of month is adjusted independently. February dates retain their day of month.
 
 ```
 D1 = min(start.Day, 30)
