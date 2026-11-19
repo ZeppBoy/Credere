@@ -12,6 +12,8 @@ All live in `src/Credere.Core/ValueObjects/`. All are `sealed record`s with get-
 
 ## `Money`
 
+**Status:** Implemented (M1-02). Reference vectors approved by the owner on 2026-11-19 (PR #36); sources are listed in `MoneyTests`: Microsoft Learn, "MidpointRounding Enum", and IEEE 754-2019 §4.3.1 (roundTiesToEven).
+
 An amount in a specific currency.
 
 ```csharp
@@ -40,18 +42,21 @@ public sealed record Money
 
 ### Invariants
 
-- `Currency` is non-null, non-empty. ISO 4217 alpha-3 codes expected but not enforced here (callers may use `"EUR"`, `"USD"`, etc.).
-- `Amount` is stored to **two decimal places** using banker's rounding (`MidpointRounding.ToEven`). This matches most retail-banking conventions; currencies with other minor-unit scales will require a dedicated subclass or adjustment — deliberately out of scope.
+- `Currency` is exactly three uppercase ASCII letters (`^[A-Z]{3}$`), for example `"EUR"` or `"USD"`. Anything else, including null, empty, whitespace-only, lowercase or accented letters, is a `ValidationError` on field `currency` from `Create`, and `Zero` throws `ArgumentException`. Currencies are not normalised, so `"eur"` is rejected, not converted. The shape is checked, not membership in the ISO 4217 list (owner decision, 2026-11-19).
+- `Amount` is rounded to **two decimal places** using banker's rounding (`MidpointRounding.ToEven`). The stored scale is not forced to two (`100m` stays `100m`, and `decimal.MaxValue` stays creatable); equality compares the numeric value, and `ToString()` shows two places in the invariant culture, for example `100.00 EUR` (owner decision, 2026-11-19). This matches most retail-banking conventions; currencies with other minor-unit scales will require a dedicated subclass or adjustment — deliberately out of scope.
 - Because rounding happens on creation, **every place that creates a `Money` is a rounding point**. Intermediate calculation (rate × day-count fraction, per-day accrual) stays in `decimal`, and a `Money` is produced only where a domain doc defines the rounding point.
-- Arithmetic across different currencies throws `InvalidOperationException`, because it is a programmer error (see above). A currency mismatch in untrusted input is caught earlier by `Create(...)` or command validation and returned as a `ValidationError`. Cross-currency conversion is explicit and goes through an `IFxConverter` (not in scope for this project — out of the non-goals).
+- `*` and `/` round their result once, as every creation does. `+` and `-` of two-place amounts are exact. `/` by zero throws `DivideByZeroException`.
+- Arithmetic and comparison across different currencies throw `InvalidOperationException`, because it is a programmer error (see above). A currency mismatch in untrusted input is caught earlier by `Create(...)` or command validation and returned as a `ValidationError`. Cross-currency conversion is explicit and goes through an `IFxConverter` (not in scope for this project — out of the non-goals).
 
 ### Properties tested via FsCheck.Xunit
 
 - Addition is associative for same-currency: `(a + b) + c == a + (b + c)`.
 - Addition has identity: `a + Money.Zero(c) == a`.
 - Addition is commutative: `a + b == b + a`.
-- Subtraction cancels: `(a + b) - b == a` within rounding tolerance.
-- Multiplication by `1m` is identity.
+- Subtraction cancels: `(a + b) - b == a`, exactly, because two-place sums are exact.
+- Multiplication by `1m` is identity; by `0m` is zero. Division by `1m` is identity.
+- Creating money from an already rounded amount changes nothing, and rounding moves an amount by at most half a cent.
+- Ordering is total and consistent with `Amount`.
 
 ## `Percentage`
 
