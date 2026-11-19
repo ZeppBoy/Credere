@@ -1,10 +1,12 @@
+using Credere.Core.Results;
+using Credere.Core.ValueObjects;
 using Xunit;
 
 namespace Credere.Core.Tests.ValueObjects;
 
 /// <summary>
-/// Reference data for <c>Money</c> (docs/domain/value-objects.md, "Money"). The tests that use it come with the
-/// implementation, after the owner has approved these vectors.
+/// Tests <see cref="Money"/> against reference vectors that the owner approved before the implementation was
+/// written (PR #36, 2026-11-19).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -114,10 +116,199 @@ public sealed class MoneyTests
         { 0.01m, -0.02m, -0.01m, 0.03m },
     };
 
-    // Failure cases the tests must cover (docs/domain/value-objects.md, "Money", Invariants):
-    //   Money.Create(1m, null / "" ) returns a ValidationError whose Field is "currency".
-    //   Adding, subtracting or comparing two amounts in different currencies throws InvalidOperationException.
-    //   Dividing by zero throws DivideByZeroException.
-    // The doc doesn't say whether a whitespace-only currency is invalid. The implementation will treat it as
-    // empty; the owner is asked to confirm in the pull request.
+    private const string Eur = "EUR";
+
+    private static Money Eu(decimal amount) => Money.Create(amount, Eur).Value;
+
+    [Theory]
+    [MemberData(nameof(PublishedCreateVectors))]
+    [MemberData(nameof(FormulaDerivedCreateVectors))]
+    public void Create_roundsToTwoPlacesHalfEven(decimal amount, decimal expected)
+    {
+        var result = Money.Create(amount, Eur);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(expected, result.Value.Amount);
+        Assert.Equal(Eur, result.Value.Currency);
+    }
+
+    [Theory]
+    [MemberData(nameof(MultiplicationVectors))]
+    public void Multiply_roundsTheProductOnce(decimal amount, decimal factor, decimal expected)
+    {
+        Assert.Equal(expected, (Eu(amount) * factor).Amount);
+        Assert.Equal(expected, (factor * Eu(amount)).Amount);
+    }
+
+    [Theory]
+    [MemberData(nameof(DivisionVectors))]
+    public void Divide_roundsTheQuotientOnce(decimal amount, decimal divisor, decimal expected)
+    {
+        Assert.Equal(expected, (Eu(amount) / divisor).Amount);
+    }
+
+    [Theory]
+    [MemberData(nameof(AdditionVectors))]
+    public void AddAndSubtract_areExact(decimal left, decimal right, decimal sum, decimal difference)
+    {
+        Assert.Equal(sum, (Eu(left) + Eu(right)).Amount);
+        Assert.Equal(difference, (Eu(left) - Eu(right)).Amount);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("   ")]
+    [InlineData("eur")]
+    [InlineData("Eur")]
+    [InlineData("EU")]
+    [InlineData("EURO")]
+    [InlineData("E1R")]
+    [InlineData("E R")]
+    [InlineData(" EUR")]
+    [InlineData("EUR ")]
+    [InlineData("EUR\n")]
+    [InlineData("\u0415UR")] // Cyrillic capital Ie, which looks like E.
+    [InlineData("\u00c9UR")] // E with an acute accent.
+    public void Create_invalidCurrency_returnsAValidationErrorOnTheCurrencyField(string? currency)
+    {
+        var result = Money.Create(1m, currency!);
+
+        Assert.False(result.IsSuccess);
+        var error = Assert.IsType<ValidationError>(result.Error);
+        Assert.Equal("currency", error.Field);
+        Assert.Contains("three uppercase letters", error.Reason, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("EUR")]
+    [InlineData("USD")]
+    [InlineData("AAA")]
+    [InlineData("ZZZ")]
+    public void Create_threeUppercaseLetters_isAccepted(string currency)
+    {
+        Assert.Equal(currency, Money.Create(1m, currency).Value.Currency);
+    }
+
+    [Fact]
+    public void Zero_isZeroInTheCurrency_andEqualsCreatedZero()
+    {
+        var zero = Money.Zero(Eur);
+
+        Assert.Equal(0m, zero.Amount);
+        Assert.Equal(Eur, zero.Currency);
+        Assert.Equal(Eu(0m), zero);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("eur")]
+    [InlineData("EURO")]
+    public void Zero_invalidCurrency_throws(string? currency)
+    {
+        var exception = Assert.Throws<ArgumentException>(() => Money.Zero(currency!));
+
+        Assert.Equal("currency", exception.ParamName);
+        Assert.Contains("three uppercase letters", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Equality_comparesNumericValueAndCurrency_notScale()
+    {
+        Assert.Equal(Eu(1.5m), Eu(1.50m));
+        Assert.Equal(Eu(1.5m).GetHashCode(), Eu(1.50m).GetHashCode());
+        Assert.NotEqual(Eu(1.5m), Money.Create(1.5m, "USD").Value);
+        Assert.NotEqual(Eu(1.5m), Eu(1.51m));
+    }
+
+    [Theory]
+    [InlineData(100, "100.00 EUR")]
+    [InlineData(1234.5, "1234.50 EUR")]
+    [InlineData(-0.125, "-0.12 EUR")]
+    [InlineData(0.004, "0.00 EUR")]
+    [InlineData(-0.004, "0.00 EUR")]
+    [InlineData(1234567.891, "1234567.89 EUR")]
+    public void ToString_showsTwoPlacesWithInvariantCulture_andNeverANegativeZero(double amount, string expected)
+    {
+        Assert.Equal(expected, Eu((decimal)amount).ToString());
+    }
+
+    [Fact]
+    public void Amount_isKeptAtItsNaturalScale_notForcedToTwoPlaces()
+    {
+        // The owner chose rounding without forcing the stored scale (PR #36), so decimal.MaxValue stays creatable.
+        Assert.Equal(decimal.MaxValue, Eu(decimal.MaxValue).Amount);
+    }
+
+    [Fact]
+    public void Comparison_orderAmountsInOneCurrency()
+    {
+        var small = Eu(1.00m);
+        var large = Eu(1.01m);
+
+        Assert.True(small < large);
+        Assert.True(large > small);
+        Assert.True(small <= large);
+        Assert.True(large >= small);
+        Assert.True(small <= Eu(1.0m));
+        Assert.True(small >= Eu(1.0m));
+        Assert.False(small < Eu(1.0m));
+        Assert.False(small > Eu(1.0m));
+        Assert.False(large < small);
+        Assert.False(small > large);
+    }
+
+    [Fact]
+    public void MixedCurrencies_inAnyOperator_throwInvalidOperation()
+    {
+        var euros = Eu(1m);
+        var dollars = Money.Create(1m, "USD").Value;
+
+        var exception = Assert.Throws<InvalidOperationException>(() => euros + dollars);
+        Assert.Contains("EUR", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("USD", exception.Message, StringComparison.Ordinal);
+        Assert.Throws<InvalidOperationException>(() => euros - dollars);
+        Assert.Throws<InvalidOperationException>(() => euros < dollars);
+        Assert.Throws<InvalidOperationException>(() => euros > dollars);
+        Assert.Throws<InvalidOperationException>(() => euros <= dollars);
+        Assert.Throws<InvalidOperationException>(() => euros >= dollars);
+    }
+
+    [Fact]
+    public void DivideByZero_throws()
+    {
+        Assert.Throws<DivideByZeroException>(() => Eu(1m) / 0m);
+    }
+
+    [Fact]
+    public void NullOperands_throwArgumentNull()
+    {
+        var one = Eu(1m);
+
+        Assert.Throws<ArgumentNullException>(() => one + null!);
+        Assert.Throws<ArgumentNullException>(() => null! - one);
+        Assert.Throws<ArgumentNullException>(() => (null as Money)! * 2m);
+        Assert.Throws<ArgumentNullException>(() => 2m * (null as Money)!);
+        Assert.Throws<ArgumentNullException>(() => (null as Money)! / 2m);
+        Assert.Throws<ArgumentNullException>(() => one < null!);
+        Assert.Throws<ArgumentNullException>(() => null! >= one);
+    }
+
+    [Fact]
+    public void Operators_keepTheCurrency()
+    {
+        var dollars = Money.Create(10m, "USD").Value;
+
+        Assert.Equal("USD", (dollars + dollars).Currency);
+        Assert.Equal("USD", (dollars - dollars).Currency);
+        Assert.Equal("USD", (dollars * 2m).Currency);
+        Assert.Equal("USD", (dollars / 2m).Currency);
+    }
+
+    // Failure cases (docs/domain/value-objects.md, "Money", Invariants), covered above: an invalid currency is a
+    // ValidationError on field "currency" (owner decision, PR #36: exactly ^[A-Z]{3}$, no normalisation, so
+    // whitespace-only is invalid); mixing currencies throws InvalidOperationException; dividing by zero throws
+    // DivideByZeroException.
 }
