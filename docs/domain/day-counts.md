@@ -35,7 +35,11 @@ All implementations:
 
 ## 1. Actual/Actual (ISDA)
 
-`ActActIsda`. Splits the interval at year boundaries. The fraction is `days_in_non_leap_portion / 365 + days_in_leap_portion / 366`.
+**Status:** Implemented (M1-05).
+
+`ActActIsda` (`ACT/ACT (ISDA)`) splits the interval at Gregorian year boundaries. It counts the start date and excludes the end date. Every day in a leap year uses a denominator of 366, including days before and after 29 February. The fraction is `days_in_non_leap_portion / 365 + days_in_leap_portion / 366`.
+
+The reference tests compare fractions at 12 decimal places and the published interest amounts at penny precision, using `MidpointRounding.ToEven` for both.
 
 **Use case:** sovereign bond markets, some corporate loans.
 
