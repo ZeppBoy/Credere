@@ -1,10 +1,19 @@
+using Credere.Core.DayCounts;
+using FsCheck.Xunit;
+using NodaTime.Text;
 using Xunit;
 
 namespace Credere.Core.Tests.DayCounts;
 
-/// <summary>Reference data for the Actual/365 Fixed convention.</summary>
-public sealed class Act365FixedTests
+/// <summary>Tests the Actual/365 Fixed convention.</summary>
+public sealed class Act365FixedTests : DayCountConventionPropertiesBase
 {
+    /// <inheritdoc />
+    protected override DayCountConvention Convention { get; } = new Act365Fixed();
+
+    /// <inheritdoc />
+    protected override bool RequiresStrictIncrease => true;
+
     /// <summary>Gets ISO start dates, exclusive end dates, and expected year fractions.</summary>
     // Formula-derived from ISDA 2006 Definitions §4.16(d), as shown in ISDA's 2000–2006 blackline:
     // https://www.isda.org/a/smMDE/Blackline-2000-v-2006-ISDA-Definitions.pdf
@@ -34,4 +43,17 @@ public sealed class Act365FixedTests
         { "2020-02-29", "2024-02-29", 4.002739726027m }, // (307 days in 2020 + 3 * 365 + 59 days in 2024) / 365.
         { "2024-01-31", "2024-03-31", 0.164383561644m }, // (1 Jan day + 29 Feb days + 30 Mar days) / 365.
     };
+
+    [Theory]
+    [MemberData(nameof(ReferenceVectors))]
+    public void Fraction_IsdaReferencePeriod_MatchesExpected(string start, string end, decimal expected)
+    {
+        var actual = Convention.Fraction(LocalDatePattern.Iso.Parse(start).Value, LocalDatePattern.Iso.Parse(end).Value);
+
+        Assert.Equal(expected, Math.Round(actual, 12, MidpointRounding.ToEven));
+    }
+
+    [Property]
+    public bool Fraction_SplitPeriod_IsAdditive(ushort startOffset, ushort firstLength, ushort secondLength) =>
+        FractionsAreAdditive(startOffset, firstLength, secondLength);
 }
