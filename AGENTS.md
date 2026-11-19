@@ -41,11 +41,12 @@ Credere is a modular monolith: one deployable with five bounded-context modules,
 - A module exposes one facade, `I<Module>Module`, plus public command/query DTOs, strongly typed ids, views and integration events. Everything else is `internal` ([ADR-0008](docs/adr/0008-module-public-contracts.md)), and modules never grant `InternalsVisibleTo` to each other.
 - A module project references only `Credere.Core` and `Credere.Shared`. Modules talk to each other only through integration events, written to the outbox in the same transaction as the state change ([ADR-0005](docs/adr/0005-transactional-outbox.md)).
 - `Credere.Core` depends on NodaTime only. `Credere.Shared` depends on the BCL only.
+- `Result<T, E>`, `Unit`, the `DomainError` base record and the common errors of [ADR-0006](docs/adr/0006-error-semantics.md) live in `Credere.Core` ([ADR-0009](docs/adr/0009-result-and-domainerror-in-core.md)). A module-specific error extends `DomainError` in its own module, and is public when the facade exposes it ([ADR-0008](docs/adr/0008-module-public-contracts.md)).
 - Hosts (`Credere.Api`, `Credere.Batch`, `Credere.Mcp`) are composition roots: DI wiring and transport translation, no business logic. `web/` talks only to `Credere.Api` over HTTP.
 - When an architecture test blocks a change, the dependency needs redesigning, usually as an integration event. Weakening the test would hide the problem the test exists to catch.
 
 ```
-src/   Credere.Core (value objects, math) · Credere.Shared (Result, outbox, idempotency)
+src/   Credere.Core (value objects, math, Result, DomainError base and common errors) · Credere.Shared (time-free integration-event and command abstractions: `[Version(n)]`, `IIntegrationEventHandler<T>`)
        Credere.Modules.{Origination,Servicing,Documents,Reporting,Ai}
        Credere.Api · Credere.Batch · Credere.Mcp (hosts) · Credere.Ai.Evals (eval console)
 tests/ Credere.{Core,Shared}.Tests · Credere.Modules.*.Tests · Credere.Integration.Tests · Credere.ArchitectureTests

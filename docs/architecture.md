@@ -46,8 +46,8 @@ Three hosts share the monolith's binaries but run separately:
               └──────────────┴──────┬───────┴──────────────┴──────────────┘
                                     │
                             ┌───────┴───────┐
-                            │ Credere.Core  │   NodaTime-only shared kernel
-                            │ Credere.Shared│   Result, outbox, idempotency
+                            │ Credere.Core  │   NodaTime-only kernel: value objects, math, Result
+                            │ Credere.Shared│   Time-free event + command abstractions
                             └───────────────┘
 ```
 

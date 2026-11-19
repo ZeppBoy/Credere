@@ -125,6 +125,8 @@ If the provider behind `IChatClient` drops or can't express any of these, the lo
 - (a) Duplicate the converters in each module's `Infrastructure/`. No new project, but five copies.
 - (b) Add a `Credere.Persistence` project (Core + EF + Mongo) that modules may reference. One copy, but it needs an ADR and an architecture-test update.
 
+**Note (M1 plan, D2).** `Credere.Shared` holds time-free abstractions only in M1: an integration-event marker with `Guid EventId`, `[Version(n)]`, `IIntegrationEventHandler<T>` and a command marker with `Guid CommandId`. The outbox and receipt *rows* carry an `Instant` ([ADR-0005](adr/0005-transactional-outbox.md)), and `Credere.Shared` can't reference NodaTime, so they are module infrastructure built in M2 with `IClock`. Where they live is decided together with this question.
+
 **Owner.** Human, before the first `DbContext` (M2).
 
 **Recommendation.** (a) until a second module needs the converters, then (b).
@@ -155,9 +157,11 @@ If the provider behind `IChatClient` drops or can't express any of these, the lo
 - (b) Add a `decimal` power function (exp/ln series) to `Credere.Core`, with its own reference cases and mutation coverage. No `double` anywhere; it could also replace the solver's `double`.
 - (c) Leave `EffectiveRate` out of M1 and add it when a product needs it.
 
-**Owner.** Human, before `EffectiveRate` is implemented (M1).
+**Owner.** Human, before `EffectiveRate` is implemented.
 
-**Recommendation.** (c) for M1, then (b) when a product needs an effective-rate quote.
+**Decision for M1 (2026-11-19).** Option (c): `EffectiveRate` is left out of M1 and out of the roadmap's M1 acceptance. The question stays open for the later milestone that needs it.
+
+**Recommendation.** (b) when a product needs an effective-rate quote.
 
 ---
 
