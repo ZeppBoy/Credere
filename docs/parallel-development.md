@@ -2,7 +2,7 @@
 
 **Status:** Proposed (2026-11-19), awaiting owner approval. Until it is approved, agents work one at a time, as before.
 
-This document describes how two or more AI coding agents (Claude Code, Kilo Code, or any tool that follows [`AGENTS.md`](../AGENTS.md)) and human contributors work on Credere at the same time without blocking each other or breaking `main`. The per-milestone task breakdowns live in [`plans/`](plans/README.md). The rules in AGENTS.md and CLAUDE.md still apply in full; this document adds the rules that only matter when several agents run at once.
+This document describes how two or more AI coding agents (Claude Code and Codex, usually run side by side from Rider's Air agent workspace, or any tool that follows [`AGENTS.md`](../AGENTS.md)) and human contributors work on Credere at the same time without blocking each other or breaking `main`. The per-milestone task breakdowns live in [`plans/`](plans/README.md). The rules in AGENTS.md still apply in full, CLAUDE.md adds Claude Code specifics, and this document adds the rules that only matter when several agents run at once. AGENTS.md §16 summarises them for every tool.
 
 ## Principles
 
@@ -11,6 +11,8 @@ This document describes how two or more AI coding agents (Claude Code, Kilo Code
 3. **A file has one writer at a time.** Each task owns a list of paths. Shared hotspots (the [serialized files](#serialized-files)) change only in tasks created for that purpose.
 4. **Shared state lives on GitHub, not on a disk.** Claims, progress and handoffs go in the task's issue and pull request. `docs/working-notes/` is gitignored and exists only in one worktree, so other agents never see it.
 5. **The owner remains the gate.** Agents produce reviewable work faster than one person can review it. The plan therefore limits concurrency and batches approvals; it does not relax them.
+6. **A different vendor checks the work.** Reference vectors and PRs written by a Claude agent are recomputed or reviewed by a Codex agent, and the other way round. Two models from different vendors are less likely to make the same mistake than one model checking itself.
+7. **The fences are enforced, not only described.** The pre-commit hook rejects files outside the task's owned paths, and `.claude/settings.json`, `.codex/` and the hooks protect the serialized files. A rule that only lives in prose holds for one tool at best.
 
 ## Roles
 
@@ -19,28 +21,57 @@ This document describes how two or more AI coding agents (Claude Code, Kilo Code
 | **Owner** | Human | Decides open questions. Approves plans, reference vectors and PRs. Merges. | — |
 | **Coordinator** | The owner, or one agent session in the main checkout | Creates and labels task issues. Moves issues to `ready` when their dependencies merge. Tells open PRs to rebase. Updates `docs/status.md`. Runs each milestone's close-out task. | Implement a task while also coordinating. |
 | **Implementer** | 2–3 agent sessions, each in its own worktree | Claims one `ready` task, implements it inside the task's owned paths, opens a PR. | Edit paths it doesn't own, merge, or push to `main`. |
-| **Reviewer** | Optional agent session | Reviews PRs that are ready (for example `/code-review`). Recomputes reference vectors independently before the owner sees them. | Fix the code it reviews in the same PR. |
+| **Reviewer** | An agent session from the other vendor than the PR's author, often the other implementer between tasks | Reviews PRs that are ready (`/code-review` in Claude Code, `/review` in Codex). Recomputes reference vectors independently before the owner sees them. | Fix the code it reviews in the same PR, or review work from its own vendor. |
 
-**Concurrency:** use at most three implementers. More than that mostly produces PRs waiting for review and rebases after every merge. Two implementers plus a reviewer is a good default.
+**Concurrency:** use at most three implementers. More than that mostly produces PRs waiting for review and rebases after every merge. The default is two implementers from different vendors, one Claude Code and one Codex, each reviewing the other's work between its own tasks. Give the critical-path lane to one of them and the most formula-driven lane (day counts, then rates) to the other.
 
 ## Setting up a worktree
 
-Keep worktrees outside the repository, next to it:
+Enable the shared git hooks once per clone (`git config core.hooksPath .githooks`); every worktree of the clone then uses them. Then, for each task:
 
-```sh
-git fetch origin
-git worktree add ../Credere-wt/m1-05 -b feat/m1-05-act-act-isda origin/main
-cd ../Credere-wt/m1-05
-dotnet build Credere.slnx
-```
-
-- **Claude Code:** `claude --worktree m1-05` creates a worktree for the session and starts in it. Rename the branch to the task's branch name before the first push: `git branch -m feat/m1-05-act-act-isda`.
-- **Other tools** (for example Kilo Code's worktree pool) work the same way, as long as the branch follows the naming below.
-- If a tool creates worktrees *inside* the repository, add that directory to `.gitignore` first. Otherwise one agent's worktree shows up as untracked files in every other checkout.
-- **Branch names** follow CONTRIBUTING.md, with the task id: `feat/m1-05-act-act-isda`, `docs/m1-01-result-placement`.
-- **Clean up** after the PR merges: `git worktree remove ../Credere-wt/m1-05`.
+1. **Create the worktree and branch.**
+   - **Rider Air:** start the session from the Agent Sessions tool window with the worktree execution mode, never local, so two agents never share a working directory. Check where Air puts its worktrees the first time; if it is inside the repository, add that directory to `.gitignore` first, or one agent's worktree shows up as untracked files in every other checkout.
+   - **Claude Code CLI:** `claude --worktree m1-05`.
+   - **By hand** (any tool), next to the repository:
+     ```sh
+     git fetch origin
+     git worktree add ../Credere-wt/m1-05 -b feat/m1-05-act-act-isda origin/main
+     ```
+   - A tool's own worktree pool (Kilo Code's, for example) works the same way.
+2. **Name the branch** after the task, following CONTRIBUTING.md: `feat/m1-05-act-act-isda`, `docs/m1-01-result-placement`. Rename a generated name before the first push: `git branch -m feat/m1-05-act-act-isda`.
+3. **Write `.task-paths`** in the worktree root: the task's owned paths from the brief, one glob per line. `*` also matches `/`, and `{a,b}` lists alternatives, so the paths can be copied from the plan as written:
+   ```text
+   # M1-05
+   src/Credere.Core/DayCounts/ActActIsda.cs
+   tests/Credere.Core.Tests/DayCounts/ActActIsda*
+   docs/domain/day-counts.md
+   ```
+   The file is gitignored. In a linked worktree the pre-commit hook refuses to commit without it, and refuses any staged path, added, changed or deleted, that matches none of its globs. A doc section can't be fenced by path, so for a shared doc such as `day-counts.md` the task still edits only its own section.
+4. **Build:** `dotnet build Credere.slnx`.
+5. **Clean up** after the PR merges: `git worktree remove <path>`, or let the tool remove its own worktree.
 
 Each worktree has its own `bin/` and `obj/`, so builds and tests in different worktrees don't interfere. The NuGet package cache is shared, which is safe.
+
+## Tool setup
+
+### Rider Air
+
+The Air plugin is bundled with Rider 2026.3. Rider detects Claude Code and Codex when they are installed and signed in, and runs each with its own configuration and subscription. Start one session per task. Review an agent's changes in Rider's diff and Local History before the agent opens its PR, and use Code Review notes to send back fixes.
+
+### Claude Code
+
+Reads `CLAUDE.md`, which imports `AGENTS.md`, loads `.claude/rules/` by path, and is guarded by `.claude/settings.json`. Nothing else to set up.
+
+### Codex
+
+Codex reads `AGENTS.md` only. AGENTS.md §13–§16 therefore hold everything it must follow, and §15 points it to the `.claude/rules/` files. `.codex/config.toml` (workspace-write sandbox with network, on-request approvals, high reasoning effort) and `.codex/rules/credere.rules` (the command allow, prompt and forbid lists) load only when the project is trusted:
+
+- Each worktree is a separate path. In a new worktree session, run `/status` and check that the sandbox is `workspace-write`. If it is not, the worktree isn't trusted: trust it when Codex asks, or add it under `[projects."<path>"]` with `trust_level = "trusted"` in `~/.codex/config.toml`.
+- A linked worktree keeps its git metadata in the main clone's `.git/`, outside the worktree. If `git commit` fails with a permission error in the sandbox, add that directory to the writable roots in `~/.codex/config.toml` (user level, because the path is machine-specific):
+  ```toml
+  [sandbox_workspace_write]
+  writable_roots = ["/Users/<you>/repo/Credere/.git"]
+  ```
 
 ## Task lifecycle
 
@@ -57,8 +88,8 @@ Each task in a milestone plan becomes one GitHub issue, titled with its id (`M1-
 An implementer works through these steps:
 
 1. **Find work.** List the ready tasks with `gh issue list --label m1 --label ready`. Take the one nearest the front of the plan's critical path.
-2. **Claim it.** Check that the issue is still `ready` (`gh issue view <n>`). Then run `gh issue edit <n> --remove-label ready --add-label claimed` and `gh issue comment <n> --body "Claimed by <tool>, worktree <name>"`. The `claimed` label is the lock: never start an issue that has it.
-3. **Write reference vectors first** (financial tasks only). Commit the reference test data and its citations before any implementation. Push, and open a draft PR (`gh pr create --draft`, with `Closes #<n>` in the body). Comment `Vectors ready for review`. The reviewer recomputes the vectors independently, and the owner approves them on the PR. Only then is the implementation written. This is the order `.claude/rules/financial-math.md` requires, so reference values can't be fitted to the code.
+2. **Claim it.** Check that the issue is still `ready` (`gh issue view <n>`). Then run `gh issue edit <n> --remove-label ready --add-label claimed` and `gh issue comment <n> --body "Claimed by <tool>, worktree <name>"`. The `claimed` label is the lock: never start an issue that has it. Then set up the worktree, including `.task-paths` ([Setting up a worktree](#setting-up-a-worktree)).
+3. **Write reference vectors first** (financial tasks only). Commit the reference test data and its citations before any implementation. Push, and open a draft PR (`gh pr create --draft`, with `Closes #<n>` in the body). Comment `Vectors ready for review`. A reviewer from the other vendor recomputes the vectors independently, and the owner approves them on the PR. Only then is the implementation written. This is the order `.claude/rules/financial-math.md` requires, so reference values can't be fitted to the code.
 4. **Implement** inside the task's owned paths, with Conventional Commits. For non-financial tasks, open the draft PR at the first push.
 5. **Rebase and check.** Rebase on `origin/main`, then run the [checks](#checks).
 6. **Ask for review.** Complete the [PR description](#pr-description-template), run `gh pr ready <n>`, and move the issue from `claimed` to `in-review`.
@@ -80,7 +111,7 @@ The files below change only in tasks created for that purpose, never in a fan-ou
 |---|---|---|
 | `Directory.Build.props`, `Directory.Packages.props`, `.editorconfig`, `.config/dotnet-tools.json` | Every project builds against them. | Tooling tasks. A new dependency also needs an ADR and owner approval (AGENTS.md §4). |
 | `Credere.slnx`, every `*.csproj` | The project graph and its references. | Tooling and contract tasks. |
-| `AGENTS.md`, `CLAUDE.md`, `.claude/**`, `CONTRIBUTING.md` | Every agent reads them. | Owner-approved docs tasks (CLAUDE.md "Approval"). |
+| `AGENTS.md`, `CLAUDE.md`, `.claude/**`, `.codex/**`, `.githooks/**`, `.github/**`, `CONTRIBUTING.md` | Every agent reads them, or they enforce the rules for every agent. | Owner-approved docs tasks (AGENTS.md §13). |
 | `tests/Credere.ArchitectureTests/**` | The boundary rules (AGENTS.md §3). | Owner-approved tasks only. |
 | `docs/status.md` | One table of adjacent rows, which conflicts on almost every parallel edit. | The coordinator, after merges. Implementers put status changes in the PR description instead. |
 | `docs/open-questions.md`, `docs/adr/**` | Numbered decision records. | Owner-approved docs tasks. Reserve the next number on the issue before writing. |
@@ -88,7 +119,7 @@ The files below change only in tasks created for that purpose, never in a fan-ou
 
 ### Public contracts
 
-Public signatures are defined in `docs/domain/` and `docs/modules/` and land in contract tasks. A fan-out task implements them as written. Changing a public signature is a separate change, approved by the owner (CLAUDE.md "Approval") and merged before the dependent tasks continue.
+Public signatures are defined in `docs/domain/` and `docs/modules/` and land in contract tasks. A fan-out task implements them as written. Changing a public signature is a separate change, approved by the owner (AGENTS.md §13) and merged before the dependent tasks continue.
 
 ## Checks
 
@@ -100,7 +131,7 @@ dotnet test
 dotnet format Credere.slnx --verify-no-changes
 ```
 
-During development, the per-project commands in the CLAUDE.md "Verify" table are enough. The full suite runs on the rebased branch before review.
+During development, the per-project commands in the AGENTS.md §14 table are enough. The full suite runs on the rebased branch before review. The hooks run their own checks on every commit and push (CONTRIBUTING.md), but they don't replace these.
 
 **Shared machine resources:**
 
@@ -185,10 +216,10 @@ Closes #<issue>
 
 ## Adopting this process
 
-These steps make the process operational. Each needs the owner's approval, because it touches serialized files or GitHub:
+The branch that added this section made the repository side operational: AGENTS.md §13–§16, the Codex configuration, the shared git hooks, the PR template, and the task-id branch names in CONTRIBUTING.md. What remains needs the owner, because it touches GitHub or a local clone:
 
-1. Add a short "Parallel work" section to AGENTS.md pointing here, so every tool reads the rules.
-2. Add to CLAUDE.md: start each task with `claude --worktree <task-id>`, and keep handoff state in the PR, because `docs/working-notes/` is not shared between worktrees.
-3. Add a PR template under `.github/` built from the [PR description template](#pr-description-template), and mention task-id branch names in CONTRIBUTING.md.
-4. Create the GitHub labels: `m1` … `m7`, `blocked`, `ready`, `claimed`, `in-review`.
-5. Create one issue per task from the milestone plan, using the brief template.
+1. Approve this document and the milestone plan, and decide the plan's gating questions.
+2. Enable the hooks in each clone: `git config core.hooksPath .githooks`.
+3. Create the GitHub labels: `m1` … `m7`, `blocked`, `ready`, `claimed`, `in-review`.
+4. Create one issue per task from the milestone plan, using the brief template.
+5. In Rider, check that Air detects both Claude Code and Codex, and run one small task with each to confirm the Codex trust and writable-roots settings above.
