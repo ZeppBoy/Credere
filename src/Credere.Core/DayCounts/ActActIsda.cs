@@ -14,6 +14,22 @@ public sealed record ActActIsda : DayCountConvention
     /// <inheritdoc />
     public override decimal Fraction(LocalDate start, LocalDate end)
     {
+        var (commonYearDays, leapYearDays) = CountDaysByYearLength(start, end);
+
+        return commonYearDays / 365m + leapYearDays / 366m;
+    }
+
+    /// <inheritdoc />
+    internal override ExactYearFraction ExactFraction(LocalDate start, LocalDate end)
+    {
+        var (commonYearDays, leapYearDays) = CountDaysByYearLength(start, end);
+
+        // commonYearDays / 365 + leapYearDays / 366, over the common denominator 365 x 366.
+        return new ExactYearFraction(commonYearDays * 366L + leapYearDays * 365L, 365 * 366);
+    }
+
+    private static (int CommonYearDays, int LeapYearDays) CountDaysByYearLength(LocalDate start, LocalDate end)
+    {
         ArgumentOutOfRangeException.ThrowIfLessThan(end, start);
 
         // Year boundaries and leap years are Gregorian, even if the dates use another calendar.
@@ -40,6 +56,6 @@ public sealed record ActActIsda : DayCountConvention
             segmentStart = segmentEnd;
         }
 
-        return commonYearDays / 365m + leapYearDays / 366m;
+        return (commonYearDays, leapYearDays);
     }
 }

@@ -16,11 +16,10 @@ namespace Credere.Core.Rates;
 /// conventions; see <c>FixedRateTests</c>.
 /// </para>
 /// <para>
-/// The product is evaluated left to right in <see cref="decimal"/>, principal times rate first, and rounded once
-/// when the result <see cref="Money"/> is created. Multiplying the rate by the year fraction first can land a
-/// hair below an exact half-cent tie, so a tie that must round up would round down. The final rounding goes through
-/// <see cref="InterestRate.ToMoney"/>, which also removes the noise that a repeating day-count fraction leaves on an
-/// exact tie.
+/// The product is evaluated exactly, as a ratio of integers, and rounded once, half to even, when the result
+/// <see cref="Money"/> is created (<see cref="ExactInterest"/>). A <see cref="decimal"/> evaluation would round a
+/// repeating year fraction such as 20/360 to 28 digits and put an exact half-cent tie a hair above or below the
+/// tie, and the order of the multiplication would change which cent it rounds to.
 /// </para>
 /// </remarks>
 public sealed record FixedRate : InterestRate
@@ -57,9 +56,9 @@ public sealed record FixedRate : InterestRate
     /// <inheritdoc />
     internal override Money CalculateInterest(Money balance, LocalDate periodStart, LocalDate periodEnd)
     {
-        var interest = balance.Amount * NominalRate.Fraction * DayCountConvention.Fraction(periodStart, periodEnd);
+        var yearFraction = DayCountConvention.ExactFraction(periodStart, periodEnd);
 
-        return ToMoney(interest, balance.Currency);
+        return ExactInterest.Of(balance, NominalRate, yearFraction).ToMoney(balance.Currency);
     }
 
     /// <inheritdoc />

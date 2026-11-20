@@ -12,4 +12,8 @@ public sealed record Act365Fixed : DayCountConvention
 
     /// <inheritdoc />
     public override decimal Fraction(LocalDate start, LocalDate end) => CountActualDays(start, end) / 365m;
+
+    /// <inheritdoc />
+    internal override ExactYearFraction ExactFraction(LocalDate start, LocalDate end) =>
+        new(CountActualDays(start, end), 365);
 }
