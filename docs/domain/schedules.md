@@ -4,19 +4,13 @@ Credere generates three kinds of amortization schedule from the shared kernel. A
 
 ## Public contract
 
+**Status:** Implemented (M1-13). Reference dates approved by the owner on 2026-11-20 (PR #43).
+
 ```csharp
 public interface IScheduleGenerator
 {
     AmortizationSchedule Generate(ScheduleRequest request);
 }
-
-public sealed record ScheduleRequest(
-    Money Principal,
-    InterestRate Rate,
-    LoanTerm Term,
-    LocalDate DisbursementDate,
-    LocalDate FirstPaymentDate,
-    PaymentFrequency PaymentFrequency);
 
 public enum PaymentFrequency
 {
@@ -24,7 +18,32 @@ public enum PaymentFrequency
     Quarterly = 4,     // Allowed as a non-primary case; Term.Months must be a multiple of 3.
 }
 
-public sealed record AmortizationSchedule(IReadOnlyList<ScheduleRow> Rows);
+public sealed record ScheduleRequest
+{
+    public Money Principal { get; }
+    public InterestRate Rate { get; }
+    public LoanTerm Term { get; }
+    public LocalDate DisbursementDate { get; }
+    public LocalDate FirstPaymentDate { get; }
+    public PaymentFrequency PaymentFrequency { get; }
+
+    public static Result<ScheduleRequest, DomainError> Create(
+        Money principal,
+        InterestRate rate,
+        LoanTerm term,
+        LocalDate disbursementDate,
+        LocalDate firstPaymentDate,
+        PaymentFrequency paymentFrequency);
+}
+
+public sealed record AmortizationSchedule
+{
+    public IReadOnlyList<ScheduleRow> Rows { get; }
+    public Money Principal { get; }          // Rows[0].OpeningBalance
+
+    public static Result<AmortizationSchedule, DomainError> Create(
+        Money principal, IReadOnlyList<ScheduleRow> rows);
+}
 
 public sealed record ScheduleRow(
     int Index,
@@ -36,16 +55,28 @@ public sealed record ScheduleRow(
     Money ClosingBalance);
 ```
 
-Invariants (enforced by `AmortizationSchedule`'s constructor):
+`ScheduleRequest` and `AmortizationSchedule` have invariants, so they use a get-only shape and `Create(...)` ([value-objects.md](value-objects.md)); a `with` expression can't bypass them. `Create` throws `ArgumentNullException` for a null argument and returns a `ValidationError` otherwise.
 
-- `Rows` is non-empty.
+`ScheduleRequest.Create` rejects, in this order:
+
+- `paymentFrequency` that is not `Monthly` or `Quarterly`;
+- `firstPaymentDate` that is not strictly after `disbursementDate` (field `firstPaymentDate`). There is no maximum length of the first period in M1;
+- a `term` that is not a whole number of payment periods, for example 10 months with quarterly payments (field `term`).
+
+Invariants (enforced by `AmortizationSchedule.Create`, which returns a `ValidationError` on field `rows` that names the first row that breaks one):
+
+- `Rows` is non-empty, and every amount is in the principal's currency.
 - `Rows[0].OpeningBalance == Principal`.
 - `Rows[^1].ClosingBalance == Money.Zero(Principal.Currency)`, exactly, because the last row absorbs the residual (see [Rounding and residuals](#rounding-and-residuals)).
 - For each row: `OpeningBalance - PrincipalDue == ClosingBalance` and `InterestDue + PrincipalDue == TotalPayment`.
 - For each adjacent pair: `Rows[i].ClosingBalance == Rows[i+1].OpeningBalance`.
-- Dates are monotonically increasing.
+- Dates strictly increase.
+
+`Create` copies the rows, and `Rows` is read-only. The schedule holds a collection, so it implements equality itself: two schedules are equal when their rows are equal one by one. `ScheduleRow.Index` is not checked against the row's position, because this contract does not list it as an invariant.
 
 ## Periods and interest (all generators)
+
+**Status:** Implemented (M1-13), as the internal `SchedulePeriods` (`PaymentDate`, `Periods`, `RowCount`). Reference dates: 41 payment dates and 3 interest-period lists in `SchedulePeriodsTests`, recomputed by Codex and approved by the owner (PR #43). The interest bullet below is implemented by the generators (M1-14 to M1-16).
 
 - **Payment dates.** Row `i` (1-based) falls on `FirstPaymentDate.PlusMonths((i − 1) × 12 / periodsPerYear)`. Each date is computed from `FirstPaymentDate` rather than from the previous row, so a month-end start doesn't drift: 31 January gives 28 February, then 31 March, not 28 March.
 - **Interest period.** Row `i` accrues from `periodStartᵢ` (inclusive) to `PaymentDateᵢ` (exclusive). `periodStart₁ = DisbursementDate` and `periodStartᵢ = PaymentDateᵢ₋₁`.
