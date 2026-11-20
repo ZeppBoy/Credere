@@ -34,6 +34,8 @@ The APR expresses the total cost of the credit to the consumer (Article 3(7)). W
 
 ## Time intervals
 
+**Status:** Implemented (M1-17).
+
 Annex III, Part I, remark (c):
 
 - A year is presumed to have 365 days (366 in a leap year), 52 weeks, or 12 equal months. A month is presumed to have 30.41666 days (365/12).
@@ -42,18 +44,16 @@ Annex III, Part I, remark (c):
   - (ii) the equal periods are counted first, then the days, both backwards to the date of the initial drawdown;
   - (iii) the days exclude the first day and include the last one. They are converted to years by dividing by 365 or 366: the number of days in the complete year counted backwards from the last day to the same day of the previous year.
 
-This is not Actual/365 Fixed on actual dates. Credere implements it as its own `DayCountConvention` subtype, `EuCcdAnnexIII`, in `src/Credere.Core/Aprc/`. AGENTS.md §7 requires every day difference to come from a `DayCountConvention`, and `EuCcdAnnexIII` satisfies that. Its `Fraction(firstDrawdown, date)` works as follows:
+`EuCcdAnnexIII` implements the APRC time basis as an internal `DayCountConvention`. It measures Gregorian calendar months and counts any remaining days using the length of the year ending at the anchor date. Its `Fraction(firstDrawdown, date)` works as follows.
 
-1. Find `m`, the largest number of whole months such that `date.PlusMonths(−m) ≥ firstDrawdown`. Credere counts whole periods in months, because every M1 schedule is monthly or quarterly.
-2. Let `anchor = date.PlusMonths(−m)` and `n` = the days from `firstDrawdown` (excluded) to `anchor` (included).
-3. If `n = 0`, the fraction is `m / 12`.
-4. Otherwise it is `m / 12 + n / Y`, where `Y` is the number of days from `anchor.PlusYears(−1)` to `anchor` (365 or 366).
+1. If both dates are the last day of their month, return the difference in calendar months divided by 12. [Credere’s D4 month-end convention](https://github.com/ZeppBoy/Credere/issues/23#issuecomment-7020226307)
+2. For other pairs, find `m`, the largest number of months such that `date.PlusMonths(−m) ≥ firstDrawdown`. When the target month lacks the original day, use its last day. Months are the whole-period unit for M1’s monthly and quarterly schedules.
+3. Let `anchor = date.PlusMonths(−m)` and `n` be the number of days from `firstDrawdown` excluded to `anchor` included. If `n = 0`, return `m / 12`.
+4. Otherwise return `m / 12 + n / Y`. `Y` is the number of days from `anchor.PlusYears(−1)` to `anchor` (365 or 366), using the same last-day clamp if the prior year lacks 29 February.
 
-Whole months are exact twelfths, so the 30.41666-day month never enters the calculation.
+Whole months contribute one twelfth of a year each. The Commission’s earlier guidance illustrates backward clamping and the look-back year through worked examples. [SWD(2012) 128 final, §4.1.1, pp. 26–27](https://mf.gov.cz/assets/attachments/EU-MFCR_Metodika_2012_128-Guidelines-consumer-credit-directive-swd-en.pdf#page=26)
 
-**Month ends.** The directive doesn't say how to count a month back from a day that the earlier month lacks, for example from 31 March into February. Credere uses NodaTime's `PlusMonths`, which clamps to the last day of the shorter month. As a result, 31 January → 28 February 2026 is 0 months + 28 days, not 1/12. This is a Credere convention, not verified against a regulatory source; see [open question #9](../open-questions.md).
-
-The cases below are derived from the text of remark (c). The directive publishes no numeric examples. The arithmetic is shown so a reviewer can check it:
+The table applies remark (c) and the D4 month-end rule.
 
 | First drawdown | Cash flow | `m` | `anchor` | `n` | `Y` | Fraction |
 |---|---|---|---|---|---|---|
@@ -62,9 +62,9 @@ The cases below are derived from the text of remark (c). The directive publishes
 | 2027-12-20 | 2028-03-10 | 2 | 2028-01-10 | 21 | 365 | 2/12 + 21/365 = 0.2242009132 |
 | 2028-02-20 | 2028-04-10 | 1 | 2028-03-10 | 19 | 366 | 1/12 + 19/366 = 0.1352459016 |
 | 2026-01-31 | 2026-03-31 | 2 | 2026-01-31 | 0 | — | 2/12 = 0.1666666667 |
-| 2026-01-31 | 2026-02-28 | 0 | 2026-02-28 | 28 | 365 | 28/365 = 0.0767123288 (month-end clamp; open question #9) |
+| 2026-01-31 | 2026-02-28 | 1 | 2026-01-31 | 0 | — | 1/12 = 0.0833333333 |
 
-Like the other conventions, `EuCcdAnnexIII` needs ≥20 vectors ([day-counts.md](day-counts.md#reference-vectors)).
+`EuCcdAnnexIIITests` checks 27 reference vectors at 12 decimal places with half-even rounding.
 
 ## Rounding
 

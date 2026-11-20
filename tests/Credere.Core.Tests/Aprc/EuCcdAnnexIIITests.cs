@@ -1,12 +1,20 @@
+using Credere.Core.Aprc;
+using Credere.Core.DayCounts;
+using Credere.Core.Tests.DayCounts;
+using NodaTime;
+using NodaTime.Text;
 using Xunit;
 
 namespace Credere.Core.Tests.Aprc;
 
 /// <summary>
-/// Reference data for Directive (EU) 2023/2225, Annex III, Part I, remark (c), and Credere's D4 month-end rule.
+/// Tests Directive (EU) 2023/2225, Annex III, Part I, remark (c), and Credere's D4 month-end rule.
 /// </summary>
-public sealed class EuCcdAnnexIIITests
+public sealed class EuCcdAnnexIIITests : DayCountConventionPropertiesBase
 {
+    /// <inheritdoc />
+    protected override DayCountConvention Convention { get; } = new EuCcdAnnexIII();
+
     /// <summary>Gets the cases from docs/domain/aprc.md, with the final case updated for the D4 decision.</summary>
     // Directive (EU) 2023/2225, Annex III, Part I, remark (c)(i)–(iii).
     // https://eur-lex.europa.eu/eli/dir/2023/2225/oj/eng#anx_III
@@ -45,13 +53,45 @@ public sealed class EuCcdAnnexIIITests
     };
 
     /// <summary>Gets worked examples of backward counting from earlier European Commission guidance.</summary>
-    // SWD(2012) 128 final, §4.1.1, pp. 25–26, examples under remark (c) for Directive 2008/48/EC.
-    // https://mf.gov.cz/assets/attachments/EU-MFCR_Metodika_2012_128-Guidelines-consumer-credit-directive-swd-en.pdf#page=25
+    // SWD(2012) 128 final, §4.1.1, pp. 26–27, examples under remark (c) for Directive 2008/48/EC.
+    // https://mf.gov.cz/assets/attachments/EU-MFCR_Metodika_2012_128-Guidelines-consumer-credit-directive-swd-en.pdf#page=26
     public static TheoryData<string, string, decimal> CommissionGuidanceVectors => new()
     {
-        { "2013-02-25", "2013-03-28", 0.091530054645m }, // p. 25, 1/12 + 3/366, anchor 28 Feb 2013.
-        { "2013-02-26", "2013-03-29", 0.088797814208m }, // p. 25, 1/12 + 2/366, clamp to 28 Feb 2013.
-        { "2012-02-26", "2012-03-29", 0.091530054645m }, // p. 25, 1/12 + 3/366, anchor 29 Feb 2012.
-        { "2012-12-01", "2013-02-02", 0.169398907104m }, // p. 26, 2/12 + 1/366, anchor 2 Dec 2012.
+        { "2013-02-25", "2013-03-28", 0.091530054645m }, // p. 26, 1/12 + 3/366, anchor 28 Feb 2013.
+        { "2013-02-26", "2013-03-29", 0.088797814208m }, // p. 26, 1/12 + 2/366, clamp to 28 Feb 2013.
+        { "2012-02-26", "2012-03-29", 0.091530054645m }, // p. 26, 1/12 + 3/366, anchor 29 Feb 2012.
+        { "2012-12-01", "2013-02-02", 0.169398907104m }, // p. 27, 2/12 + 1/366, anchor 2 Dec 2012.
     };
+
+    [Theory]
+    [MemberData(nameof(ProjectVectors))]
+    [MemberData(nameof(FormulaDerivedVectors))]
+    [MemberData(nameof(CommissionGuidanceVectors))]
+    public void Fraction_ReferencePeriod_MatchesExpected(string start, string end, decimal expected)
+    {
+        var startDate = LocalDatePattern.Iso.Parse(start).Value;
+        var endDate = LocalDatePattern.Iso.Parse(end).Value;
+
+        var fraction = Convention.Fraction(startDate, endDate);
+
+        Assert.Equal(expected, Math.Round(fraction, 12, MidpointRounding.ToEven));
+    }
+
+    [Fact]
+    public void Fraction_LookBackPrecedesCalendarRange_MatchesNextGregorianCycle()
+    {
+        var start = new LocalDate(CalendarSystem.Iso.MinYear, 1, 1);
+        var end = start.PlusDays(1);
+
+        Assert.Equal(Convention.Fraction(start.PlusYears(400), end.PlusYears(400)), Convention.Fraction(start, end));
+    }
+
+    [Fact]
+    public void Fraction_DatesInDifferentCalendars_UsesGregorianMonthEnds()
+    {
+        var start = new LocalDate(2026, 1, 31).WithCalendar(CalendarSystem.Julian);
+        var end = new LocalDate(2026, 2, 28);
+
+        Assert.Equal(1m / 12m, Convention.Fraction(start, end));
+    }
 }
