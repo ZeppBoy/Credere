@@ -1,3 +1,4 @@
+using System.Numerics;
 using Credere.Core.Results;
 
 namespace Credere.Core.Aprc;
@@ -12,8 +13,9 @@ internal static class AprcSolver
     private const decimal RelativeResidualTolerance = 0.000000000001m;
     private const decimal RateTolerance = 0.0000000001m;
     private const int MaximumIterations = 200;
+    private const int DisclosureCentsPerRateUnit = 10_000;
 
-    internal readonly record struct Solution(decimal Rate, int Iterations, decimal FinalResidual);
+    internal readonly record struct Solution(decimal Rate, int Iterations, decimal FinalResidual, decimal DisclosedPercent);
 
     /// <summary>
     /// Finds the non-negative APRC for a validated positive drawdown and non-negative payments in the same currency.
@@ -58,7 +60,7 @@ internal static class AprcSolver
 
         if (paymentTotal == scaledDrawdown)
         {
-            return Result<Solution, DomainError>.Success(new Solution(0m, 0, 0m));
+            return Result<Solution, DomainError>.Success(new Solution(0m, 0, 0m, 0m));
         }
 
         var remainingDrawdown = scaledDrawdown - immediateTotal;
@@ -81,7 +83,8 @@ internal static class AprcSolver
         var upperLimitTolerance = RelativeResidualTolerance * remainingDrawdown;
         if (upperResidual == 0m || (upperRate == MaximumRate && Math.Abs(upperResidual) < upperLimitTolerance))
         {
-            return Result<Solution, DomainError>.Success(new Solution(upperRate, 0, upperResidual * amountScale));
+            return Result<Solution, DomainError>.Success(new Solution(
+                upperRate, 0, upperResidual * amountScale, RoundedDisclosureCents(upperRate) / 100m));
         }
 
         if (upperResidual < 0m)
@@ -96,7 +99,8 @@ internal static class AprcSolver
             var residual = PresentValueResidual(remainingDrawdown, payments, amountScale, rate);
             if (Math.Abs(residual) < residualTolerance || width < RateTolerance || iteration == MaximumIterations)
             {
-                return Result<Solution, DomainError>.Success(new Solution(rate, iteration, residual * amountScale));
+                var disclosedPercent = DisclosedPercent(drawdown, payments, remainingDrawdown, amountScale, lowerRate, upperRate);
+                return Result<Solution, DomainError>.Success(new Solution(rate, iteration, residual * amountScale, disclosedPercent));
             }
 
             if (residual < 0m)
@@ -112,6 +116,83 @@ internal static class AprcSolver
 
     private static Result<Solution, DomainError> NoRoot() => Result<Solution, DomainError>.Failure(
         new ValidationError("payments", "no non-negative APRC was found at or below 10,000%"));
+
+    private static decimal DisclosedPercent(
+        decimal drawdown,
+        IReadOnlyList<(decimal Amount, decimal Years)> payments,
+        decimal remainingDrawdown,
+        decimal amountScale,
+        decimal lowerRate,
+        decimal upperRate)
+    {
+        var lower = RoundedDisclosureCents(lowerRate);
+        var upper = RoundedDisclosureCents(upperRate);
+        if (lower == upper)
+        {
+            return lower / 100m;
+        }
+
+        var wholeYears = payments.All(static payment => payment.Amount == 0m || decimal.Truncate(payment.Years) == payment.Years);
+
+        // The residual increases with the rate. At zero the exact rate equals the cutoff, which rounds up.
+        while (lower < upper)
+        {
+            var cents = lower + (upper - lower) / 2;
+            var cutoffRate = (cents + 0.5m) / DisclosureCentsPerRateUnit;
+            var roundsUp = wholeYears
+                ? ComparePresentValuesAtWholeYears(drawdown, payments, cents) <= 0
+                : PresentValueResidual(remainingDrawdown, payments, amountScale, cutoffRate) <= 0m;
+
+            if (roundsUp)
+            {
+                lower = cents + 1;
+            }
+            else
+            {
+                upper = cents;
+            }
+        }
+
+        return lower / 100m;
+    }
+
+    private static int RoundedDisclosureCents(decimal rate) =>
+        (int)Math.Round(rate * DisclosureCentsPerRateUnit, 0, MidpointRounding.AwayFromZero);
+
+    private static int ComparePresentValuesAtWholeYears(
+        decimal drawdown,
+        IReadOnlyList<(decimal Amount, decimal Years)> payments,
+        int lowerDisclosureCents)
+    {
+        // The cutoff's discount base (1 + X) is a rational number. Clear all denominators before comparing.
+        const int baseDenominator = 2 * DisclosureCentsPerRateUnit;
+        var baseNumerator = baseDenominator + 2 * lowerDisclosureCents + 1;
+        var lastYear = (int)payments.Max(static payment => payment.Amount == 0m ? 0m : payment.Years);
+        var drawdownValue = ExactUnits(drawdown) * BigInteger.Pow(baseNumerator, lastYear);
+        var paymentValue = BigInteger.Zero;
+        foreach (var (amount, years) in payments)
+        {
+            if (amount == 0m)
+            {
+                continue;
+            }
+
+            var year = (int)years;
+            paymentValue += ExactUnits(amount) * BigInteger.Pow(baseDenominator, year) * BigInteger.Pow(baseNumerator, lastYear - year);
+        }
+
+        return drawdownValue.CompareTo(paymentValue);
+    }
+
+    private static BigInteger ExactUnits(decimal amount)
+    {
+        // Cash flows are non-negative. This puts every decimal coefficient on the same 28-place scale.
+        Span<int> bits = stackalloc int[4];
+        decimal.GetBits(amount, bits);
+        var coefficient = (BigInteger)(uint)bits[0] + ((BigInteger)(uint)bits[1] << 32) + ((BigInteger)(uint)bits[2] << 64);
+        var scale = (bits[3] >> 16) & 0xff;
+        return coefficient * BigInteger.Pow(10, 28 - scale);
+    }
 
     private static decimal PresentValueResidual(
         decimal remainingDrawdown,

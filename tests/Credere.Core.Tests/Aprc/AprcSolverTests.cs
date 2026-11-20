@@ -51,7 +51,7 @@ public sealed class AprcSolverTests
         var result = AprcSolver.Solve(1_000m, [(600m, 1m), (400m, 2m)]);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal(new AprcSolver.Solution(0m, 0, 0m), result.Value);
+        Assert.Equal(new AprcSolver.Solution(0m, 0, 0m, 0m), result.Value);
     }
 
     [Fact]

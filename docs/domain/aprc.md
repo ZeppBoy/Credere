@@ -70,8 +70,9 @@ The table applies remark (c) and the D4 month-end rule.
 
 Annex III, Part I, remark (d) requires the result to an accuracy of at least one decimal place, rounded half up: "if the figure at the following decimal place is greater than or equal to 5, the figure at that particular decimal place shall be increased by one".
 
-- `AprcResult.Rate` is the unrounded rate as a `decimal` fraction, for example `0.1296203771`. Tests and the audit trail use it.
+- `AprcResult.Rate` is the solver’s best estimate as a `decimal` fraction, for example `0.1296203771`, before disclosure rounding. Tests and the audit trail use it.
 - `AprcResult.Disclosed` is a `Percentage` rounded to **two** decimal places with `MidpointRounding.AwayFromZero`. For the non-negative rates Credere computes, that equals the directive's half-up rule. Two places exceed the one-place minimum and match the two-place figures in the 98/7/EC examples. The loan agreement shows `Disclosed`.
+- When the final bisection bracket spans a disclosure cutoff, the solver compares present values at that cutoff to select the disclosed percentage. An exact tie rounds up.
 
 ## Scope in M1
 
@@ -89,6 +90,8 @@ Out of M1 scope:
 - APRC after early repayment.
 
 ## Implementation
+
+**Status:** Implemented (M1-19).
 
 ```csharp
 public interface IAprcCalculator
@@ -111,7 +114,8 @@ public sealed record AprcResult(
 
 `Calculate` returns a `ValidationError` ([ADR-0006](../adr/0006-error-semantics.md)) when:
 
-- there is no drawdown or no payment;
+- there is anything other than one drawdown or there are no payments;
+- the drawdown amount is zero or negative, or a payment amount is negative;
 - the currencies are mixed;
 - a payment is dated before the first drawdown;
 - the payments total less than the drawdowns (a negative APRC is out of scope);
@@ -119,22 +123,23 @@ public sealed record AprcResult(
 
 ### Algorithm
 
-1. Let `d₀` be the earliest drawdown date. For each cash flow compute `t = EuCcdAnnexIII.Fraction(d₀, date)`.
+1. Let `d₀` be the date of the drawdown. For each payment compute its year fraction from `d₀` using `EuCcdAnnexIII`.
 2. Define `f(X) = Σₖ Cₖ (1 + X)^(−tₖ) − Σₗ Dₗ (1 + X)^(−sₗ)`.
 3. Start with the bracket `X ∈ [0, 1]`. If `f(0) × f(1) > 0`, double the upper bound up to `X = 100`.
 4. Bisect until any of these holds:
    - `|f(X)| < 1e-12 × max(Σ|Cₖ|, Σ|Dₗ|)`;
    - the bracket width is `< 1e-10`;
    - 200 iterations have run.
-5. Convert the midpoint to `decimal` as `Rate`, then round it to produce `Disclosed`.
+5. Return the midpoint as `Rate` and its residual as `FinalResidual`. If both bracket endpoints produce the same two-place percentage, use it as `Disclosed`. Otherwise, test the half-up cutoffs in the bracket. At a cutoff, a negative or zero residual places the rate at or above that cutoff.
 
 ### Numerical notes
 
-- `decimal` has no fractional power, so the powers `(1 + X)^(−t)` are computed in `double`. This is the single exception AGENTS.md §7 allows. The result crosses back to `decimal` once, in step 5. With `t ≤ 50` years and `X ≤ 100`, `double`'s ~15 significant digits leave the error well below the 1e-7 precision the reference examples print.
+- Bisection, rates, cash flows and residuals use `decimal`. The discount power `(1 + X)^(−t)` converts its arguments to `double` for `Math.Pow` and converts the discount factor back to `decimal` before applying it to a cash flow.
+- At a disclosure cutoff, cash flows at whole-year offsets permit an exact present-value comparison. The solver clears denominators and compares integers, preserving exact ties and distinguishing nearby amounts. Fractional-year cutoffs use the solver’s discount-factor precision.
 
 ### Reference examples
 
-Each worked example in 98/7/EC Annex II (amending 87/102/EEC Annex III) is a test in `AprcCalculatorTests`. The test's XML comment cites the part (A or B) and the example number. The "Exact" column was computed by bisection to 10 decimal places (2026-11-18).
+`AprcSolverTests` checks all eight worked examples in 98/7/EC Annex II (amending 87/102/EEC Annex III). `AprcCalculatorTests` also checks Part B through the public calculator. The fixtures cite the part and example number. The "Exact" column was computed by bisection to 10 decimal places (2026-11-18).
 
 | Ex. | Cash flows (amount @ years from drawdown) | Printed `i` | Printed % | Exact `i` |
 |---|---|---|---|---|
