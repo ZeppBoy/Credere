@@ -30,10 +30,11 @@ public sealed class ExactInterestTests
     public static TheoryData<decimal, string, decimal, string, string, string, decimal> ExactRoundingVectors => new()
     {
         // Exact tie with a repeating fraction: 1950.00 x 0.0006 x 20/360 = 0.065 exactly; floor 6 is even, so 0.06.
-        // A plain decimal product is 0.06500000000000000000000000052, which rounds up to 0.07 (the bug fixed by M1-08's tolerance).
+        // A plain decimal evaluation of 1950m * (0.06m / 100m) * (20m / 360m) gives 0.0650000000000000000000000001m on .NET 10, which
+        // rounds up to 0.07 under plain half-even (the problem M1-08's tolerance worked around).
         { 0.06m, "ACT/360", 1950.00m, "EUR", "2024-01-01", "2024-01-21", 0.06m },
 
-        // Just above a tie: 100.00 x 0.05000000000000000000000001 x 9/360 = 0.12500000000000000000000025 exactly, so 0.13.
+        // Just above a tie: 100.00 x 0.0500000000000000000000001 x 9/360 = 0.12500000000000000000000025 exactly, so 0.13.
         // The 1e-22 tolerance of the M1-08 implementation wrongly returns 0.12 (Codex P1 finding on PR #40).
         { 5.00000000000000000000001m, "ACT/360", 100.00m, "EUR", "2024-01-01", "2024-01-10", 0.13m },
 
@@ -49,7 +50,7 @@ public sealed class ExactInterestTests
         { 0.06m, "ACT/360", -1950.00m, "EUR", "2024-01-01", "2024-01-21", -0.06m },
 
         // Added by the implementer, not in issue #46 (owner to accept or drop): just below the tie of the second row.
-        // 100.00 x 0.04999999999999999999999999 x 9/360 = 0.12499999999999999999999975 exactly, so 0.12.
+        // 100.00 x 0.0499999999999999999999999 x 9/360 = 0.12499999999999999999999975 exactly, so 0.12.
         { 4.99999999999999999999999m, "ACT/360", 100.00m, "EUR", "2024-01-01", "2024-01-10", 0.12m },
     };
 
