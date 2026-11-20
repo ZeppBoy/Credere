@@ -1,11 +1,16 @@
+using Credere.Core.Schedules;
+using Credere.Core.ValueObjects;
+using FsCheck.Xunit;
+using NodaTime;
+using NodaTime.Text;
 using Xunit;
 
 namespace Credere.Core.Tests.Schedules;
 
 /// <summary>
 /// Reference data for the payment-date and interest-period logic shared by all schedule generators
-/// (docs/domain/schedules.md, "Periods and interest"). The tests that use it come with the implementation,
-/// after the owner has approved these vectors.
+/// (docs/domain/schedules.md, "Periods and interest"). The owner approved these vectors (PR #43,
+/// 2026-11-20) before the implementation was written.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -104,19 +109,149 @@ public sealed class SchedulePeriodsTests
         },
     };
 
+    private static LocalDate Date(string iso) => LocalDatePattern.Iso.Parse(iso).Value;
+
+    [Theory]
+    [MemberData(nameof(PaymentDateVectors))]
+    public void PaymentDate_countsFromTheFirstPaymentDate_clampingToTheEndOfShortMonths(
+        string first, int periodsPerYear, int rowIndex, string expected)
+    {
+        var date = SchedulePeriods.PaymentDate(Date(first), (PaymentFrequency)periodsPerYear, rowIndex);
+
+        Assert.Equal(Date(expected), date);
+    }
+
+    [Theory]
+    [MemberData(nameof(InterestPeriodVectors))]
+    public void Periods_runFromTheDisbursementDate_thenFromEachPaymentDate(
+        string disbursement, string first, int periodsPerYear, int rowCount, string[] expected)
+    {
+        var periods = SchedulePeriods.Periods(
+            Date(disbursement), Date(first), (PaymentFrequency)periodsPerYear, rowCount);
+
+        Assert.Equal(
+            expected,
+            periods.Select(p => $"{LocalDatePattern.Iso.Format(p.Start)}|{LocalDatePattern.Iso.Format(p.End)}").ToArray());
+    }
+
+    [Theory]
+    [InlineData(PaymentFrequency.Monthly, 24, 24)]
+    [InlineData(PaymentFrequency.Monthly, 1, 1)]
+    [InlineData(PaymentFrequency.Monthly, 600, 600)]
+    [InlineData(PaymentFrequency.Quarterly, 24, 8)]
+    [InlineData(PaymentFrequency.Quarterly, 3, 1)]
+    [InlineData(PaymentFrequency.Quarterly, 600, 200)]
+    public void RowCount_isTheTermInMonthsDividedByTheMonthsPerPeriod(
+        PaymentFrequency frequency, int termMonths, int expected)
+    {
+        Assert.Equal(expected, SchedulePeriods.RowCount(LoanTerm.FromMonths(termMonths), frequency));
+    }
+
+    [Fact]
+    public void RowCount_termThatIsNotWholePeriods_throws()
+    {
+        var exception = Assert.Throws<ArgumentException>(
+            () => SchedulePeriods.RowCount(LoanTerm.FromMonths(10), PaymentFrequency.Quarterly));
+
+        Assert.Equal("term", exception.ParamName);
+        Assert.Contains("whole number of payment periods", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RowCount_nullTerm_throws()
+    {
+        Assert.Throws<ArgumentNullException>(() => SchedulePeriods.RowCount(null!, PaymentFrequency.Monthly));
+    }
+
+    [Theory]
+    [InlineData(PaymentFrequency.Monthly, 12, 1)]
+    [InlineData(PaymentFrequency.Quarterly, 4, 3)]
+    public void PeriodsPerYear_andMonthsPerPeriod_followTheFrequency(
+        PaymentFrequency frequency, int periodsPerYear, int monthsPerPeriod)
+    {
+        Assert.Equal(periodsPerYear, SchedulePeriods.PeriodsPerYear(frequency));
+        Assert.Equal(monthsPerPeriod, SchedulePeriods.MonthsPerPeriod(frequency));
+    }
+
+    [Fact]
+    public void PeriodsPerYear_undefinedFrequency_throws()
+    {
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(
+            () => SchedulePeriods.PeriodsPerYear((PaymentFrequency)7));
+
+        Assert.Equal("frequency", exception.ParamName);
+        Assert.Contains("Not a defined payment frequency", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PaymentDate_rowIndexBelowOne_throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => SchedulePeriods.PaymentDate(new LocalDate(2026, 1, 31), PaymentFrequency.Monthly, 0));
+    }
+
+    [Fact]
+    public void Periods_rowCountBelowOne_throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => SchedulePeriods.Periods(
+                new LocalDate(2026, 1, 1), new LocalDate(2026, 2, 1), PaymentFrequency.Monthly, 0));
+    }
+
+    // Property: for every first-payment day 1-31 in every month, every date over the longest term equals the first date
+    // plus the months, clamped to the last day of the target month, computed here from year and month arithmetic.
+    [Property]
+    public bool PaymentDates_equalTheFirstDatePlusMonths_clampedToTheMonthEnd_andStrictlyIncrease(
+        byte year, byte month, byte day, bool quarterly)
+    {
+        var frequency = quarterly ? PaymentFrequency.Quarterly : PaymentFrequency.Monthly;
+        var monthsPerPeriod = quarterly ? 3 : 1;
+        var startYear = 2000 + (year % 100);
+        var startMonth = 1 + (month % 12);
+        var startDay = Math.Min(1 + (day % 31), CalendarSystem.Iso.GetDaysInMonth(startYear, startMonth));
+        var first = new LocalDate(startYear, startMonth, startDay);
+        var rows = 600 / monthsPerPeriod;
+        var previous = SchedulePeriods.PaymentDate(first, frequency, 1);
+
+        if (previous != first)
+        {
+            return false;
+        }
+
+        for (var index = 2; index <= rows; index++)
+        {
+            var date = SchedulePeriods.PaymentDate(first, frequency, index);
+            var monthIndex = (startYear * 12) + (startMonth - 1) + ((index - 1) * monthsPerPeriod);
+            var (expectedYear, expectedMonth) = (monthIndex / 12, (monthIndex % 12) + 1);
+            var expectedDay = Math.Min(startDay, CalendarSystem.Iso.GetDaysInMonth(expectedYear, expectedMonth));
+
+            if (date != new LocalDate(expectedYear, expectedMonth, expectedDay) || date <= previous)
+            {
+                return false;
+            }
+
+            previous = date;
+        }
+
+        return true;
+    }
+
+    [Property]
+    public bool Periods_areContiguous_andStartAtTheDisbursementDate(byte offset, byte gap, bool quarterly)
+    {
+        var frequency = quarterly ? PaymentFrequency.Quarterly : PaymentFrequency.Monthly;
+        var disbursement = new LocalDate(2026, 1, 1).PlusDays(offset);
+        var first = disbursement.PlusDays(1 + gap);
+
+        var periods = SchedulePeriods.Periods(disbursement, first, frequency, 12);
+
+        return periods[0].Start == disbursement
+            && periods[0].End == first
+            && periods.Skip(1).Select((period, i) => period.Start == periods[i].End).All(contiguous => contiguous);
+    }
+
     // Other cases the tests must cover (docs/domain/schedules.md, "Public contract" and "Periods and interest"):
-    //   Row count equals Term.Months for monthly and Term.Months / 3 for quarterly.
-    //   Quarterly with a Term.Months that is not a multiple of 3 is rejected (the doc says Term.Months must be a multiple of 3).
-    //   Payment dates are strictly increasing for every first-payment day 1-31 over a 600-month term (property).
-    //   Each date equals FirstPaymentDate plus (i - 1) x 12 / periodsPerYear months, not the previous date plus one period (property).
-    //   AmortizationSchedule invariants, each violated once and accepted once: non-empty Rows; first opening balance
-    //   equals the principal; last closing balance is exactly zero; OpeningBalance - PrincipalDue == ClosingBalance;
-    //   InterestDue + PrincipalDue == TotalPayment; ClosingBalance(i) == OpeningBalance(i + 1); dates increase.
-    //   AmortizationSchedule equality compares the rows element by element, not the list reference (AGENTS.md §6).
-    //
-    // Not specified in the doc, so deliberately not given vectors yet (open questions in the PR description):
-    //   Whether FirstPaymentDate must be after DisbursementDate (equal gives an empty first period; earlier gives a
-    //   reversed one), and whether a maximum first-period length applies.
-    //   Which error a request with a mismatched frequency and term returns (ValidationError field name).
-    //   Whether the rows are monotonic when the invariant says "monotonically increasing": strictly or not.
+    //   Row count equals Term.Months for monthly and Term.Months / 3 for quarterly (RowCount tests above).
+    //   The ScheduleRequest rules (first payment after disbursement, quarterly term a multiple of 3, strictly
+    //   increasing dates) are in ScheduleRequestTests; the AmortizationSchedule invariants are in AmortizationScheduleTests.
 }
