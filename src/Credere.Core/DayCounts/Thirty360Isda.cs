@@ -11,14 +11,19 @@ public sealed record Thirty360Isda : DayCountConvention
     public override string Name => "30/360 ISDA";
 
     /// <inheritdoc />
-    public override decimal Fraction(LocalDate start, LocalDate end)
+    public override decimal Fraction(LocalDate start, LocalDate end) => Numerator(start, end) / 360m;
+
+    /// <inheritdoc />
+    internal override ExactYearFraction ExactFraction(LocalDate start, LocalDate end) =>
+        new(Numerator(start, end), 360);
+
+    private static int Numerator(LocalDate start, LocalDate end)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(end, start);
 
         var startDay = Math.Min(start.Day, 30);
         var endDay = startDay == 30 ? Math.Min(end.Day, 30) : end.Day;
-        var numerator = 360 * (end.Year - start.Year) + 30 * (end.Month - start.Month) + (endDay - startDay);
 
-        return numerator / 360m;
+        return 360 * (end.Year - start.Year) + 30 * (end.Month - start.Month) + (endDay - startDay);
     }
 }

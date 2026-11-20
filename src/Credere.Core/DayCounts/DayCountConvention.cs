@@ -18,6 +18,20 @@ public abstract record DayCountConvention
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="end" /> precedes <paramref name="start" />.</exception>
     public abstract decimal Fraction(LocalDate start, LocalDate end);
 
+    /// <summary>
+    /// Returns the same year fraction as <see cref="Fraction" />, as an exact ratio of integers. The interest
+    /// calculation rounds once, at the end, so it needs the unrounded value (docs/domain/rates.md).
+    /// </summary>
+    /// <remarks>
+    /// The built-in conventions override this with their exact ratio. A custom convention that implements only
+    /// <see cref="Fraction" /> gets the exact value of the decimal it returns.
+    /// </remarks>
+    /// <param name="start">The first date in the interval.</param>
+    /// <param name="end">The date immediately after the interval.</param>
+    /// <returns>The exact year fraction.</returns>
+    internal virtual ExactYearFraction ExactFraction(LocalDate start, LocalDate end) =>
+        ExactYearFraction.FromDecimal(Fraction(start, end));
+
     internal static int CountActualDays(LocalDate start, LocalDate end)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(end, start);

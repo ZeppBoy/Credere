@@ -26,8 +26,13 @@ public interface IInterestCalculator
 - `InterestCalculator` is the only implementation: a stateless `sealed` class that delegates the formula to the rate subtype.
 - `periodEnd < periodStart` is a programmer error and throws.
 - The rate's formula method is `internal`, so code outside `Credere.Core` can't bypass the calculator. Because the member is `internal abstract`, the hierarchy also can't be extended outside the assembly.
-- **Rounding point:** each call computes in `decimal` and creates exactly one `Money` at the end, which rounds to two places with `MidpointRounding.ToEven` ([value-objects.md](value-objects.md#money)). Per-period interest in a schedule row is that `Money` ([schedules.md](schedules.md)).
-- **Ties.** A repeating day-count fraction such as `20/360` is stored in 28 digits, rounded, so an exact half-cent product can land a hair above or below the tie (1,950.00 × 0.06% × 20/360 is exactly 0.065, but `decimal` gives `0.06500000000000000000000000052`). A scan of 13.5 million exact ties under Actual/360 and Actual/365 Fixed rounded about 30% of them the wrong way. Every subtype therefore creates its `Money` through `InterestRate.ToMoney`, an `internal static` helper that treats a value within 1e-22 of the interest's magnitude of a half-cent as that half-cent, then rounds half-even once. A value that differs from a tie by more than that, for example by 2.5e-14, is rounded as it is. The same scan, repeated with the helper, found no wrong tie in 6.7 million.
+- **Rounding point:** each call evaluates the interest exactly and creates exactly one `Money` at the end, which rounds to two places with `MidpointRounding.ToEven` ([value-objects.md](value-objects.md#money)). Per-period interest in a schedule row is that `Money` ([schedules.md](schedules.md)).
+- **Exact evaluation (M1-22).** A `decimal` holds 28 digits, so a repeating day-count fraction such as `20/360` is rounded, and an exact half-cent product can land a hair above or below the tie (1,950.00 × 0.06% × 20/360 is exactly 0.065, but `decimal` gives `0.0650000000000000000000000001`). A scan of 13.5 million exact ties under Actual/360 and Actual/365 Fixed rounded about 30% of them the wrong way. The M1-08 fix, a relative 1e-22 tolerance, was withdrawn after the cross-vendor review: it rounded a genuine non-tie as a tie (€100 at 5.00000000000000000000001% for 9 days Actual/360 gave €0.12 instead of €0.13), and its intermediate product overflowed for `decimal.MaxValue`.
+  - `Money.Amount` and `Percentage.Value` are finite decimals, so each is a coefficient over a power of ten. The five built-in conventions expose their year fraction as an exact ratio of integers (`internal virtual DayCountConvention.ExactFraction`), sharing the day count with the public `Fraction`. A custom convention that implements only `Fraction` contributes the exact value of the decimal it returns.
+  - `internal readonly struct ExactInterest` multiplies the three ratios as integers, with no rounding. `ToMoney` compares the exact cent remainder with half the denominator and uses the parity of the cent only on equality, then splits the rounded cents into units and cents, so a result of `decimal.MaxValue` is never multiplied by 100. A result above the range of `decimal` throws `OverflowException`, because `Money` cannot hold it.
+  - Sums of `ExactInterest` stay exact, so the segments of a floating or tiered rate are rounded once, at the end.
+  - The public `DayCountConvention.Fraction` signature and its decimal results are unchanged.
+  - Reference vectors: the six rows of `ExactInterestTests` (issue #46, approved on PR #47), plus every earlier fixed-rate and day-count vector.
 
 ## `InterestRate` (abstract root)
 
@@ -49,7 +54,7 @@ public abstract record InterestRate
 
 `NominalRate` is the "quoted" rate (the headline percent a borrower sees for the product). The specific semantics of each subtype determine how `CalculateInterest` uses it.
 
-The root also has `internal static Money ToMoney(decimal interest, string currency)`, the one place a subtype turns its unrounded `decimal` into the returned `Money` (see Ties above). `FloatingRate` and `TieredRate` use it too.
+A subtype creates its returned `Money` through `ExactInterest.ToMoney` (see Exact evaluation above), never from a `decimal` product. `FloatingRate` and `TieredRate` do the same.
 
 ## `FixedRate`
 
@@ -63,15 +68,15 @@ public sealed record FixedRate : InterestRate
 
     internal override Money CalculateInterest(Money balance, LocalDate s, LocalDate e)
     {
-        // Left to right: principal times rate first, then the day-count fraction.
-        var interest = balance.Amount * NominalRate.Fraction * DayCountConvention.Fraction(s, e);
-        return ToMoney(interest, balance.Currency);
+        // Exact: the three factors are integer ratios, rounded once at the end.
+        var fraction = DayCountConvention.ExactFraction(s, e);
+        return ExactInterest.Of(balance, NominalRate, fraction).ToMoney(balance.Currency);
     }
 }
 ```
 
 - **Formula:** `interest = balance × rate × dayCountFraction(s, e)`.
-- **Order of evaluation.** The product is evaluated left to right in `decimal`, principal times rate first, and rounded once through `ToMoney`. `balance * (rate * fraction)` is not equivalent: for 73.00 at 1.5% over 5/365 it gives `0.01499…96` and rounds to 0.01, where the exact tie 0.015 goes to 0.02 (found in the vector review of PR #40).
+- **Evaluation.** The product is exact, so the order of the factors no longer matters. In `decimal`, `balance * (rate * fraction)` gave `0.01499…96` for 73.00 at 1.5% over 5/365 and rounded to 0.01, where the exact tie 0.015 goes to 0.02 (found in the vector review of PR #40). That case stays in `FixedRateTests`.
 - **Use case:** standard installment loans.
 - **Invariants:** `NominalRate` ≥ 0, ≤ 100%. `Create` returns a `ValidationError` on field `nominalRate` above 100%, and throws `ArgumentNullException` for a null argument.
 

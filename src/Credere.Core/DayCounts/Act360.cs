@@ -12,4 +12,8 @@ public sealed record Act360 : DayCountConvention
 
     /// <inheritdoc />
     public override decimal Fraction(LocalDate start, LocalDate end) => CountActualDays(start, end) / 360m;
+
+    /// <inheritdoc />
+    internal override ExactYearFraction ExactFraction(LocalDate start, LocalDate end) =>
+        new(CountActualDays(start, end), 360);
 }

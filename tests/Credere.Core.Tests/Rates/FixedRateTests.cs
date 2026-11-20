@@ -15,7 +15,7 @@ namespace Credere.Core.Tests.Rates;
 /// <remarks>
 /// <para>
 /// Formula under test: <c>interest = balance × (nominalRate / 100) × dayCountFraction(periodStart, periodEnd)</c>,
-/// computed in <c>decimal</c> and rounded once, to two places with <c>MidpointRounding.ToEven</c>, when the
+/// evaluated exactly and rounded once, to two places with <c>MidpointRounding.ToEven</c>, when the
 /// <c>Money</c> result is created. The period includes <c>periodStart</c> and excludes <c>periodEnd</c>.
 /// </para>
 /// <para>
@@ -76,8 +76,9 @@ public sealed class FixedRateTests
     /// </summary>
     // Each row is an exact tie, derived with integer arithmetic: cents = B x R / 10000 x d / 360, with B in cents and R in
     // hundredths of a percent. The cents value shown is the exact half-cent figure, and the expected interest goes to
-    // the even cent. Without the snap in InterestRate.ToMoney, a 28-digit fraction such as 20/360 sits a hair above
-    // or below the tie, and all 6 of these rows round the wrong way; a scan of 13.5 million exact ties found about 30% wrong.
+    // the even cent. A plain decimal evaluation puts a 28-digit fraction such as 20/360 a hair above or below the tie,
+    // and all 6 of these rows round the wrong way; a scan of 13.5 million exact ties found about 30% wrong. The exact
+    // evaluation of ExactInterest rounds every one of them correctly.
     public static TheoryData<decimal, string, decimal, int, decimal> RepeatingFractionTieVectors => new()
     {
         { 0.06m, "ACT/360", 1950.00m, 20, 0.06m }, // 6.5 cents: floor 6 even, down.
@@ -161,36 +162,6 @@ public sealed class FixedRateTests
         Assert.Equal(
             0.12m,
             CalculateFor(4.999999999999m, "ACT/360", 100.00m, "EUR", "2024-01-01", "2024-01-10").Amount);
-    }
-
-    [Fact]
-    public void ToMoney_tolerance_scalesWithTheMagnitudeOfTheInterest()
-    {
-        // 10,000,000,000.065 is an exact tie (floor 6 even, down). The extra 5e-14 is 1e-11 of a half-cent: far below the
-        // 1e-22 relative tolerance at this magnitude (2e-10 half-cents), so it is noise and the tie goes down.
-        var interest = InterestRate.ToMoney(10_000_000_000.065000000000050m, "EUR");
-
-        Assert.Equal(10_000_000_000.06m, interest.Amount);
-    }
-
-    [Theory]
-    [InlineData("0.065000000000000000000000000052", 0.06)] // Tie plus noise, floor even: down.
-    [InlineData("0.064999999999999999999999999948", 0.06)] // Tie minus noise, floor even: down.
-    [InlineData("0.075000000000000000000000000052", 0.08)] // Tie plus noise, floor odd: up.
-    [InlineData("0.074999999999999999999999999948", 0.08)] // Tie minus noise, floor odd: up.
-    [InlineData("0.0650000001", 0.07)] // Genuinely above the tie: up.
-    [InlineData("0.0649999999", 0.06)] // Genuinely below the tie: down.
-    [InlineData("0.07", 0.07)] // Not near a tie.
-    [InlineData("0", 0)]
-    [InlineData("-0.065000000000000000000000000052", -0.06)] // Negative interest ties the same way.
-    [InlineData("-0.075000000000000000000000000052", -0.08)]
-    public void ToMoney_snapsNoiseOnATieOnly_thenRoundsHalfEvenOnce(string unrounded, double expected)
-    {
-        var interest = InterestRate.ToMoney(
-            decimal.Parse(unrounded, System.Globalization.CultureInfo.InvariantCulture), "EUR");
-
-        Assert.Equal((decimal)expected, interest.Amount);
-        Assert.Equal("EUR", interest.Currency);
     }
 
     [Theory]
