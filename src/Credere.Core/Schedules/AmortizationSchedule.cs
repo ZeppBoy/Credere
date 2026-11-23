@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Numerics;
+using Credere.Core.DayCounts;
 using Credere.Core.Results;
 using Credere.Core.ValueObjects;
 using NodaTime.Text;
@@ -106,12 +108,12 @@ public sealed record AmortizationSchedule
                 return "the opening balance of row 1 must equal the principal";
             }
 
-            if (row.OpeningBalance - row.PrincipalDue != row.ClosingBalance)
+            if (Cents(row.OpeningBalance) - Cents(row.PrincipalDue) != Cents(row.ClosingBalance))
             {
                 return $"row {number}: the opening balance minus the principal due must equal the closing balance";
             }
 
-            if (row.InterestDue + row.PrincipalDue != row.TotalPayment)
+            if (Cents(row.InterestDue) + Cents(row.PrincipalDue) != Cents(row.TotalPayment))
             {
                 return $"row {number}: the interest due plus the principal due must equal the total payment";
             }
@@ -128,6 +130,18 @@ public sealed record AmortizationSchedule
         }
 
         return rows[^1].ClosingBalance != zero ? "the closing balance of the last row must be exactly zero" : null;
+    }
+
+    // The row equations are checked on exact integer cents. Money arithmetic rounds to 28 digits and throws on
+    // overflow near decimal.MaxValue, so it could accept an unequal pair or throw instead of returning an error.
+    private static BigInteger Cents(Money money)
+    {
+        const int centsPerUnit = 100;
+
+        // A decimal is a coefficient over a power of ten, and an amount has at most two places.
+        var exact = ExactYearFraction.FromDecimal(money.Amount);
+
+        return exact.Numerator * centsPerUnit / exact.Denominator;
     }
 
     private static bool AllInCurrency(ScheduleRow row, string currency) =>

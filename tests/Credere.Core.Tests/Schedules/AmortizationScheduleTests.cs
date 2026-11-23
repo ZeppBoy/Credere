@@ -161,6 +161,58 @@ public sealed class AmortizationScheduleTests
         AssertViolation(rows, "row 2 has an amount that is not in EUR");
     }
 
+    // Source for the next four tests: the reproducers in Codex's review of PR #43. Money arithmetic rounds to 28 digits
+    // and throws near decimal.MaxValue, so the row equations are checked on exact cents.
+    private static readonly Money Max = Eur(decimal.MaxValue);
+
+    private static Result<AmortizationSchedule, DomainError> CreateOneRow(Money interest, Money total) =>
+        AmortizationSchedule.Create(
+            Max,
+            [new ScheduleRow(1, new LocalDate(2026, 2, 28), Max, interest, Max, total, Eur(0m))]);
+
+    [Fact]
+    public void Create_totalPaymentOneCentOffAtTheMaximumAmount_isRejected()
+    {
+        // decimal.MaxValue + 0.01 cannot be held by a decimal, so addition used to drop the cent and accept the total.
+        var result = CreateOneRow(Eur(0.01m), Max);
+
+        Assert.False(result.IsSuccess);
+        var error = Assert.IsType<ValidationError>(result.Error);
+        Assert.Equal("rows", error.Field);
+        Assert.Contains("row 1: the interest due plus the principal due", error.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Create_totalPaymentBeyondTheMaximumAmount_isRejectedNotThrown()
+    {
+        // decimal.MaxValue + 1 used to throw OverflowException from the addition.
+        var result = CreateOneRow(Eur(1m), Max);
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains("row 1: the interest due plus the principal due", Assert.IsType<ValidationError>(result.Error).Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Create_closingBalanceOneCentOffAtTheMaximumAmount_isRejected()
+    {
+        // MaxValue - 0.01 used to round back to MaxValue and equal the closing balance.
+        var row = new ScheduleRow(1, new LocalDate(2026, 2, 28), Max, Eur(0m), Eur(0.01m), Eur(0.01m), Max);
+
+        var result = AmortizationSchedule.Create(Max, [row]);
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains("row 1: the opening balance minus the principal due", Assert.IsType<ValidationError>(result.Error).Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Create_scheduleOfTheMaximumAmount_isValidWhenTheEquationsHoldExactly()
+    {
+        var result = CreateOneRow(Eur(0m), Max);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(Max, result.Value.Principal);
+    }
+
     [Fact]
     public void Create_nullArguments_throw()
     {

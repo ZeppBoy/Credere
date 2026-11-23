@@ -72,7 +72,7 @@ Invariants (enforced by `AmortizationSchedule.Create`, which returns a `Validati
 - For each adjacent pair: `Rows[i].ClosingBalance == Rows[i+1].OpeningBalance`.
 - Dates strictly increase.
 
-`Create` copies the rows, and `Rows` is read-only. The schedule holds a collection, so it implements equality itself: two schedules are equal when their rows are equal one by one. `ScheduleRow.Index` is not checked against the row's position, because this contract does not list it as an invariant.
+The row equations are checked on exact amounts (integer cents), so an amount near `decimal.MaxValue` gives a `ValidationError`, never a silently accepted total or an `OverflowException`. `Create` copies the rows, and `Rows` is read-only. The schedule holds a collection, so it implements equality itself: two schedules are equal when their rows are equal one by one. `ScheduleRow.Index` is not checked against the row's position, because this contract does not list it as an invariant.
 
 ## Periods and interest (all generators)
 
