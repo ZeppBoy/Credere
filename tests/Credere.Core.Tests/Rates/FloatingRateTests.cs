@@ -1,3 +1,10 @@
+using Credere.Core.DayCounts;
+using Credere.Core.Rates;
+using Credere.Core.Results;
+using Credere.Core.ValueObjects;
+using FsCheck.Xunit;
+using NodaTime;
+using NodaTime.Text;
 using Xunit;
 
 namespace Credere.Core.Tests.Rates;
@@ -10,6 +17,11 @@ namespace Credere.Core.Tests.Rates;
 /// </remarks>
 public sealed class FloatingRateTests
 {
+    private static readonly InterestCalculator Calculator = new();
+    private static readonly LocalDate Origin = new(2024, 1, 1);
+    private static readonly FloatingRate ReferenceRate = FloatingRate.Create(
+        new Percentage(3.75m), new Percentage(1.5m), new Act360()).Value;
+
     /// <summary>Gets the base and margin in percent units, convention name, balance, dates, and expected interest.</summary>
     // ISDA 2006 Definitions §6.1(a) and §4.16: https://www.isda.org/a/smMDE/Blackline-2000-v-2006-ISDA-Definitions.pdf
     // ISDA also reproduces §6.1(a) in its compounding memo §3.2: https://www.isda.org/a/2KiDE/isda-compounding-memo.pdf
@@ -29,4 +41,63 @@ public sealed class FloatingRateTests
         // 100 × (5 + 1e-23)/100 × 9/360 is 0.12500000000000000000000025 and rounds up.
         { 5m, 0.00000000000000000000001m, "ACT/360", 100m, "2024-01-01", "2024-01-10", 0.13m },
     };
+
+    [Theory]
+    [MemberData(nameof(ReferenceVectors))]
+    public void Calculate_FixedReset_MatchesReferenceInterest(
+        decimal baseRate, decimal margin, string basis, decimal balance, string start, string end, decimal expected)
+    {
+        DayCountConvention convention = basis switch
+        {
+            "ACT/360" => new Act360(),
+            "ACT/365 Fixed" => new Act365Fixed(),
+            "ACT/ACT (ISDA)" => new ActActIsda(),
+            "30/360 ISDA" => new Thirty360Isda(),
+            "30E/360" => new ThirtyE360(),
+            _ => throw new ArgumentOutOfRangeException(nameof(basis), basis, "Unknown day-count convention."),
+        };
+        var rate = FloatingRate.Create(new Percentage(baseRate), new Percentage(margin), convention).Value;
+        var amount = Money.Create(balance, "EUR").Value;
+
+        var interest = Calculator.Calculate(rate, amount, LocalDatePattern.Iso.Parse(start).Value, LocalDatePattern.Iso.Parse(end).Value);
+
+        Assert.Equal(Money.Create(expected, "EUR").Value, interest);
+    }
+
+    [Fact]
+    public void Create_ValidRates_ExposesFixedResetAndNominalRate()
+    {
+        Assert.Equal(ResetSchedule.Fixed(new Percentage(3.75m)), ReferenceRate.ResetSchedule);
+        Assert.Equal(new Percentage(3.75m), ReferenceRate.BaseRate);
+        Assert.Equal(new Percentage(1.5m), ReferenceRate.Margin);
+        Assert.Equal(new Percentage(5.25m), ReferenceRate.NominalRate);
+    }
+
+    [Fact]
+    public void Create_NominalRateOverflows_ReturnsValidationError()
+    {
+        var result = FloatingRate.Create(new Percentage(decimal.MaxValue), new Percentage(1.5m), new Act360());
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("nominalRate", Assert.IsType<ValidationError>(result.Error).Field);
+    }
+
+    [Property]
+    public bool Calculate_ZeroBalance_ReturnsZero(ushort days) =>
+        Calculator.Calculate(ReferenceRate, Money.Zero("EUR"), Origin, Origin.PlusDays(days)) == Money.Zero("EUR");
+
+    [Property]
+    public bool Calculate_EmptyPeriod_ReturnsZero(short cents) =>
+        Calculator.Calculate(ReferenceRate, Money.Create(cents / 100m, "EUR").Value, Origin, Origin) == Money.Zero("EUR");
+
+    [Property]
+    public bool Calculate_DoubledBalance_IsLinearWithinOneCent(short cents, ushort days)
+    {
+        var balance = Money.Create(cents / 100m, "EUR").Value;
+        var end = Origin.PlusDays(days);
+        var interest = Calculator.Calculate(ReferenceRate, balance, Origin, end);
+        var doubled = Calculator.Calculate(ReferenceRate, balance * 2m, Origin, end);
+
+        return Math.Abs(doubled.Amount - (interest.Amount * 2m)) <= 0.01m;
+    }
 }
