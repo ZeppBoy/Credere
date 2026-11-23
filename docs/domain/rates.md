@@ -102,17 +102,14 @@ public sealed record FloatingRate(
 
 ## `TieredRate`
 
+**Status:** Implemented (M1-11).
+
 ```csharp
-public sealed record TieredRate(
-    IReadOnlyList<Tier> Tiers,
-    DayCountConvention DayCountConvention,
-    TieredApplicationMode Mode) : InterestRate
+public sealed record TieredRate : InterestRate
 {
-    public override Percentage NominalRate => Tiers[^1].Rate;
+    public static Result<TieredRate, DomainError> Create(
+        IReadOnlyList<Tier> tiers, DayCountConvention dayCountConvention, TieredApplicationMode mode);
 
-    internal override Money CalculateInterest(Money balance, LocalDate s, LocalDate e);
-
-    // UpperLimit is null only on the last tier, meaning "no upper limit".
     public sealed record Tier(Percentage Rate, Money? UpperLimit);
 }
 
@@ -123,16 +120,10 @@ public enum TieredApplicationMode
 }
 ```
 
-- **Formula (OnCurrentBalance):** find the first tier where `UpperLimit` is null or `balance <= UpperLimit`; apply that rate across the period.
-- **Formula (Marginal):** for each tier, compute `min(balance, upper) − previousUpper`, treating a null `upper` as `balance`, and apply that tier's rate. The sum stays in `decimal` and becomes `Money` once.
-- **Use case:** balance-banded pricing on revolving-flavoured term products.
-- **Invariants:**
-  - At least one tier.
-  - Every tier except the last has a non-null `UpperLimit`, with limits strictly ascending.
-  - The last tier's `UpperLimit` is null.
-  - All limits are in the currency of the balance.
-
-**The Promissio bug to avoid:** `TieredRate` must be called with the **current balance**, not the original principal, for the `OnCurrentBalance` lookup. That is why the parameter is named `balance` on every rate: the caller passes the outstanding balance for the period.
+- `OnCurrentBalance` applies the rate of the first matching tier to the entire outstanding balance. The upper limit is inclusive.
+- `Marginal` applies each tier’s rate only to the outstanding balance within that tier. It sums exact interest contributions and rounds the total once to `Money`. The two modes correspond to Tiering Methods A and B. [12 CFR part 1030, Appendix A, Part I.D](https://www.consumerfinance.gov/rules-policy/regulations/1030/a/)
+- The rate holds a read-only copy of a nonempty tier list. Each tier before the last has a positive, strictly increasing upper limit in one currency. The last tier has a null upper limit and supplies the quoted `NominalRate`.
+- Both modes accept zero and reject negative balances. The outstanding balance must use the same currency as the finite upper limits. A single unbounded tier can use the currency of the outstanding balance.
 
 ## `EffectiveRate` (effective annual rate)
 
