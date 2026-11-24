@@ -82,23 +82,19 @@ public sealed record FixedRate : InterestRate
 
 ## `FloatingRate`
 
-```csharp
-public sealed record FloatingRate(
-    Percentage BaseRate,
-    Percentage Margin,
-    DayCountConvention DayCountConvention,
-    ResetSchedule ResetSchedule) : InterestRate
-{
-    public override Percentage NominalRate => BaseRate + Margin;
+**Status:** Implemented (M1-10).
 
-    internal override Money CalculateInterest(Money balance, LocalDate s, LocalDate e);
+```csharp
+public sealed record FloatingRate : InterestRate
+{
+    public static Result<FloatingRate, DomainError> Create(
+        Percentage baseRate, Percentage margin, DayCountConvention dayCountConvention);
 }
 ```
 
-- **Formula:** per sub-period defined by the `ResetSchedule`, use the BaseRate effective on the reset date + Margin. `interest(s, e) = Σᵢ balance × rateᵢ × dayCountFraction(sᵢ, eᵢ)`. The sum stays in `decimal` and becomes `Money` once.
-- **Use case:** EURIBOR + margin products.
-- **Reset schedule:** out of scope for M1; a `ResetSchedule.Fixed(baseRate)` placeholder is used until M2 introduces reset tracking.
-- **Invariants:** `BaseRate`, `Margin` ≥ 0.
+- M1 uses `ResetSchedule.Fixed(baseRate)` for the entire interval. `BaseRate` comes from that schedule and `NominalRate` is the quoted sum of `BaseRate` and `Margin`.
+- `InterestCalculator` evaluates `balance × (BaseRate + Margin) × dayCountFraction` by summing the two exact interest contributions before rounding the result to `Money`. [ISDA 2006 Definitions §6.1(a) and §4.16](https://www.isda.org/a/smMDE/Blackline-2000-v-2006-ISDA-Definitions.pdf)
+- `Percentage` enforces non-negative components. `Create` returns a `ValidationError` on `nominalRate` if their sum exceeds the `decimal` range.
 
 ## `TieredRate`
 
