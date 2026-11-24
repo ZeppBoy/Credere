@@ -34,5 +34,6 @@ internal static class AnnuityScheduleGeneratorFailureVectors
         // 0.95 x 0.005 x 1.005^13 / (1.005^13 - 1) = 0.075660... -> 0.08. Interest is below one cent in every row, so each
         // regular row repays 0.08 and the balance is below zero after row 12 (0.95 - 12 x 0.08 = -0.01).
         new("Tiny_6pct_13m", 0.95m, 6m, "30E/360", 13, PaymentFrequency.Monthly, "2026-01-15", "2026-02-15"),
+
     ];
 }

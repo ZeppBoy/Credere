@@ -72,6 +72,20 @@ public sealed class AnnuityScheduleGeneratorTests
         Assert.IsType<ValidationError>(result.Error);
     }
 
+    [Fact]
+    public void Generate_oneZeroRateRowAtDecimalMaxValue_paysTheWholePrincipalExactly()
+    {
+        // decimal.MaxValue is representable, so a single zero-rate payment of exactly that amount is a valid schedule. Converting
+        // the cents with (decimal)cents / 100 would overflow here (Codex review of PR #51, at 04c23cb).
+        var result = Generator.Generate(MaxPrincipalRequest(months: 1, ratePercent: 0m));
+
+        Assert.True(result.IsSuccess, result.IsSuccess ? string.Empty : result.Error.ToString());
+        var row = Assert.Single(result.Value.Rows);
+        Assert.Equal(decimal.MaxValue, row.TotalPayment.Amount);
+        Assert.Equal(decimal.MaxValue, row.PrincipalDue.Amount);
+        Assert.Equal(0m, row.ClosingBalance.Amount);
+    }
+
     private static ScheduleRequest MaxPrincipalRequest(int months, decimal ratePercent) =>
         ScheduleRequest.Create(
             Money.Create(decimal.MaxValue, "EUR").Value,
