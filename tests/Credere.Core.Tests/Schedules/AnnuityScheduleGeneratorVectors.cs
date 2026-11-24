@@ -314,5 +314,42 @@ internal static partial class AnnuityScheduleGeneratorVectors
                 R("2026-11-30", 6825.18m, 31.28m, 3402.19m, 3433.47m, 3422.99m),
                 R("2026-12-31", 3422.99m, 16.21m, 3422.99m, 3439.20m, 0.00m),
             ]),
+        // TinyPrincipal_zeroRate_5m: 1.00 EUR at 0% (30E/360), 5 months, monthly, disbursed 2026-01-15, first payment 2026-02-15.
+        // Instalment: zero rate, so P / n = 0.200000 -> 0.20.
+        // Row 1: interest 1.00 x 0% x 1/12 = 0.000000 -> 0.00; principal 0.20 - 0.00 = 0.20; closing 0.80.
+        // Row 2: interest 0.80 x 0% x 1/12 = 0.000000 -> 0.00; principal 0.20 - 0.00 = 0.20; closing 0.60.
+        // Row 5 (last): interest 0.20 x 0% x 1/12 = 0.000000 -> 0.00; principal = opening 0.20; total 0.20.
+        new(
+            "TinyPrincipal_zeroRate_5m", 1.00m, 0m, "30E/360", 5, PaymentFrequency.Monthly,
+            "2026-01-15", "2026-02-15", 0.20m,
+            [
+                R("2026-02-15", 1.00m, 0.00m, 0.20m, 0.20m, 0.80m),
+                R("2026-03-15", 0.80m, 0.00m, 0.20m, 0.20m, 0.60m),
+                R("2026-04-15", 0.60m, 0.00m, 0.20m, 0.20m, 0.40m),
+                R("2026-05-15", 0.40m, 0.00m, 0.20m, 0.20m, 0.20m),
+                R("2026-06-15", 0.20m, 0.00m, 0.20m, 0.20m, 0.00m),
+            ]),
+        // TinyPrincipal_6pct_12m: 0.95 EUR at 6% (30E/360), 12 months, monthly, disbursed 2026-01-15, first payment 2026-02-15.
+        // Instalment: P x r x (1+r)^12 / ((1+r)^12 - 1), r = 6% / 12 = 0.005: 0.081763 -> 0.08 (nearest half-cent tie is 0.3237 cents away).
+        // Row 1: interest 0.95 x 6% x 1/12 = 0.004750 -> 0.00; principal 0.08 - 0.00 = 0.08; closing 0.87.
+        // Row 2: interest 0.87 x 6% x 1/12 = 0.004350 -> 0.00; principal 0.08 - 0.00 = 0.08; closing 0.79.
+        // Row 12 (last): interest 0.07 x 6% x 1/12 = 0.000350 -> 0.00; principal = opening 0.07; total 0.07.
+        new(
+            "TinyPrincipal_6pct_12m", 0.95m, 6m, "30E/360", 12, PaymentFrequency.Monthly,
+            "2026-01-15", "2026-02-15", 0.08m,
+            [
+                R("2026-02-15", 0.95m, 0.00m, 0.08m, 0.08m, 0.87m),
+                R("2026-03-15", 0.87m, 0.00m, 0.08m, 0.08m, 0.79m),
+                R("2026-04-15", 0.79m, 0.00m, 0.08m, 0.08m, 0.71m),
+                R("2026-05-15", 0.71m, 0.00m, 0.08m, 0.08m, 0.63m),
+                R("2026-06-15", 0.63m, 0.00m, 0.08m, 0.08m, 0.55m),
+                R("2026-07-15", 0.55m, 0.00m, 0.08m, 0.08m, 0.47m),
+                R("2026-08-15", 0.47m, 0.00m, 0.08m, 0.08m, 0.39m),
+                R("2026-09-15", 0.39m, 0.00m, 0.08m, 0.08m, 0.31m),
+                R("2026-10-15", 0.31m, 0.00m, 0.08m, 0.08m, 0.23m),
+                R("2026-11-15", 0.23m, 0.00m, 0.08m, 0.08m, 0.15m),
+                R("2026-12-15", 0.15m, 0.00m, 0.08m, 0.08m, 0.07m),
+                R("2027-01-15", 0.07m, 0.00m, 0.07m, 0.07m, 0.00m),
+            ]),
     ];
 }

@@ -104,6 +104,24 @@ public sealed class AnnuityScheduleGeneratorVectorTests
     }
 
     [Fact]
+    public void FailureVectors_areValidRequests_soOnlyTheGeneratorCanRejectThem()
+    {
+        Assert.NotEmpty(AnnuityScheduleGeneratorFailureVectors.All);
+        foreach (var failure in AnnuityScheduleGeneratorFailureVectors.All)
+        {
+            var request = ScheduleRequest.Create(
+                Eur(failure.Principal),
+                FixedRate.Create(new Percentage(failure.RatePercent), Convention(failure.Convention)).Value,
+                LoanTerm.FromMonths(failure.Months),
+                Date(failure.Disbursement),
+                Date(failure.FirstPayment),
+                failure.Frequency);
+
+            Assert.True(request.IsSuccess, failure.Name);
+        }
+    }
+
+    [Fact]
     public void LongVector_reproducesTheResidualExampleOfTheScheduleDoc()
     {
         // docs/domain/schedules.md, "Rounding and residuals": 250,000 at 12%, 360 monthly rows, 30E/360, payment day <= 28.

@@ -39,3 +39,22 @@ internal sealed record AnnuityScheduleGeneratorVector(
     string FirstPayment,
     decimal Instalment,
     IReadOnlyList<AnnuityScheduleGeneratorRow> Rows);
+
+/// <summary>One request that the annuity generator must reject with a <c>ValidationError</c> on <c>principal</c>.</summary>
+/// <param name="Name">The vector name, unique within the set.</param>
+/// <param name="Principal">The principal in EUR.</param>
+/// <param name="RatePercent">The nominal rate in percent units.</param>
+/// <param name="Convention">The day-count convention name.</param>
+/// <param name="Months">The term in months.</param>
+/// <param name="Frequency">The payment frequency.</param>
+/// <param name="Disbursement">The ISO disbursement date.</param>
+/// <param name="FirstPayment">The ISO first payment date.</param>
+internal sealed record AnnuityScheduleGeneratorFailureVector(
+    string Name,
+    decimal Principal,
+    decimal RatePercent,
+    string Convention,
+    int Months,
+    PaymentFrequency Frequency,
+    string Disbursement,
+    string FirstPayment);
