@@ -18,10 +18,10 @@ public sealed class AmortizationScheduleTests
     private static Money Eur(decimal amount) => Money.Create(amount, "EUR").Value;
 
     private static ScheduleRow Row1() => new(
-        1, new LocalDate(2026, 2, 28), Eur(1000m), Eur(10m), Eur(400m), Eur(410m), Eur(600m));
+        1, new LocalDate(2026, 2, 28), Eur(1000m), Eur(0m), Eur(10m), Eur(400m), Eur(410m), Eur(600m));
 
     private static ScheduleRow Row2() => new(
-        2, new LocalDate(2026, 3, 31), Eur(600m), Eur(6m), Eur(600m), Eur(606m), Eur(0m));
+        2, new LocalDate(2026, 3, 31), Eur(600m), Eur(0m), Eur(6m), Eur(600m), Eur(606m), Eur(0m));
 
     private static List<ScheduleRow> ValidRows() => [Row1(), Row2()];
 
@@ -51,7 +51,7 @@ public sealed class AmortizationScheduleTests
     [Fact]
     public void Create_singleRowSchedule_isValid()
     {
-        var row = new ScheduleRow(1, new LocalDate(2026, 2, 28), Eur(1000m), Eur(10m), Eur(1000m), Eur(1010m), Eur(0m));
+        var row = new ScheduleRow(1, new LocalDate(2026, 2, 28), Eur(1000m), Eur(0m), Eur(10m), Eur(1000m), Eur(1010m), Eur(0m));
 
         Assert.True(Create([row]).IsSuccess);
     }
@@ -107,12 +107,66 @@ public sealed class AmortizationScheduleTests
     }
 
     [Fact]
-    public void Create_closingBalanceThatIsNotOpeningMinusPrincipalDue_isRejected()
+    public void Create_closingBalanceThatIsNotOpeningPlusCapitalisedInterestMinusPrincipalDue_isRejected()
     {
         var rows = ValidRows();
         rows[0] = Row1() with { ClosingBalance = Eur(599m) };
 
-        AssertViolation(rows, "row 1: the opening balance minus the principal due");
+        AssertViolation(rows, "row 1: the opening balance plus capitalised interest minus the principal due");
+    }
+
+    [Fact]
+    public void Create_zeroCashDuesWithCapitalisedInterest_continuesFromTheIncreasedBalance()
+    {
+        var opening = Row1() with
+        {
+            CapitalisedInterest = Eur(10m),
+            InterestDue = Eur(0m),
+            PrincipalDue = Eur(0m),
+            TotalPayment = Eur(0m),
+            ClosingBalance = Eur(1010m),
+        };
+        var maturity = Row2() with { OpeningBalance = Eur(1010m), PrincipalDue = Eur(1010m), TotalPayment = Eur(1016m) };
+
+        Assert.True(Create([opening, maturity]).IsSuccess);
+        AssertViolation([opening with { CapitalisedInterest = Eur(0m) }, maturity], "plus capitalised interest");
+        AssertViolation([opening with { TotalPayment = Eur(10m) }, maturity], "interest due plus the principal due");
+    }
+
+    [Theory]
+    [InlineData(1000, 0)]
+    [InlineData(1001, -1)]
+    public void Create_principalDueAtOrAboveTheBalanceBeforeMaturity_returnsAValidationErrorOnPrincipal(
+        int principalDue, int closingBalance)
+    {
+        var opening = Row1() with
+        {
+            PrincipalDue = Eur(principalDue),
+            TotalPayment = Eur(principalDue + 10),
+            ClosingBalance = Eur(closingBalance),
+        };
+        var maturity = Row2() with
+        {
+            OpeningBalance = Eur(closingBalance),
+            PrincipalDue = Eur(closingBalance),
+            TotalPayment = Eur(closingBalance + 6),
+        };
+
+        var result = Create([opening, maturity]);
+
+        Assert.False(result.IsSuccess);
+        var error = Assert.IsType<ValidationError>(result.Error);
+        Assert.Equal("principal", error.Field);
+        Assert.Contains("row 1", error.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Create_negativePrincipalDueBeforeMaturity_isAccepted()
+    {
+        var opening = Row1() with { PrincipalDue = Eur(-1m), TotalPayment = Eur(9m), ClosingBalance = Eur(1001m) };
+        var maturity = Row2() with { OpeningBalance = Eur(1001m), PrincipalDue = Eur(1001m), TotalPayment = Eur(1007m) };
+
+        Assert.True(Create([opening, maturity]).IsSuccess);
     }
 
     [Fact]
@@ -161,6 +215,14 @@ public sealed class AmortizationScheduleTests
         AssertViolation(rows, "row 2 has an amount that is not in EUR");
     }
 
+    [Fact]
+    public void Create_capitalisedInterestInAnotherCurrency_isRejected()
+    {
+        var rows = ValidRows();
+        rows[0] = Row1() with { CapitalisedInterest = Money.Zero("USD") };
+        AssertViolation(rows, "row 1 has an amount that is not in EUR");
+    }
+
     // Source for the next four tests: the reproducers in Codex's review of PR #43. Money arithmetic rounds to 28 digits
     // and throws near decimal.MaxValue, so the row equations are checked on exact cents.
     private static readonly Money Max = Eur(decimal.MaxValue);
@@ -168,7 +230,7 @@ public sealed class AmortizationScheduleTests
     private static Result<AmortizationSchedule, DomainError> CreateOneRow(Money interest, Money total) =>
         AmortizationSchedule.Create(
             Max,
-            [new ScheduleRow(1, new LocalDate(2026, 2, 28), Max, interest, Max, total, Eur(0m))]);
+            [new ScheduleRow(1, new LocalDate(2026, 2, 28), Max, Eur(0m), interest, Max, total, Eur(0m))]);
 
     [Fact]
     public void Create_totalPaymentOneCentOffAtTheMaximumAmount_isRejected()
@@ -196,12 +258,34 @@ public sealed class AmortizationScheduleTests
     public void Create_closingBalanceOneCentOffAtTheMaximumAmount_isRejected()
     {
         // MaxValue - 0.01 used to round back to MaxValue and equal the closing balance.
-        var row = new ScheduleRow(1, new LocalDate(2026, 2, 28), Max, Eur(0m), Eur(0.01m), Eur(0.01m), Max);
+        var row = new ScheduleRow(1, new LocalDate(2026, 2, 28), Max, Eur(0m), Eur(0m), Eur(0.01m), Eur(0.01m), Max);
 
         var result = AmortizationSchedule.Create(Max, [row]);
 
         Assert.False(result.IsSuccess);
-        Assert.Contains("row 1: the opening balance minus the principal due", Assert.IsType<ValidationError>(result.Error).Reason, StringComparison.Ordinal);
+        Assert.Contains("row 1: the opening balance plus capitalised interest minus the principal due", Assert.IsType<ValidationError>(result.Error).Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Create_capitalisationWithIntermediateBalanceAboveTheMaximum_checksTheFinalAmountExactly()
+    {
+        var regular = Row1() with
+        {
+            OpeningBalance = Max,
+            CapitalisedInterest = Eur(1m),
+            InterestDue = Eur(0m),
+            PrincipalDue = Eur(1m),
+            TotalPayment = Eur(1m),
+            ClosingBalance = Max,
+        };
+        var maturity = Row2() with { OpeningBalance = Max, InterestDue = Eur(0m), PrincipalDue = Max, TotalPayment = Max };
+
+        Assert.True(AmortizationSchedule.Create(Max, [regular, maturity]).IsSuccess);
+
+        var invalid = regular with { CapitalisedInterest = Eur(1.01m) };
+        var result = AmortizationSchedule.Create(Max, [invalid, maturity]);
+        Assert.False(result.IsSuccess);
+        Assert.Equal("rows", Assert.IsType<ValidationError>(result.Error).Field);
     }
 
     [Fact]
@@ -250,7 +334,7 @@ public sealed class AmortizationScheduleTests
     [Fact]
     public void Equality_differsWhenTheRowCountDiffers()
     {
-        var single = new ScheduleRow(1, new LocalDate(2026, 2, 28), Eur(1000m), Eur(10m), Eur(1000m), Eur(1010m), Eur(0m));
+        var single = new ScheduleRow(1, new LocalDate(2026, 2, 28), Eur(1000m), Eur(0m), Eur(10m), Eur(1000m), Eur(1010m), Eur(0m));
 
         Assert.NotEqual(Create(ValidRows()).Value, Create([single]).Value);
     }

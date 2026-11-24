@@ -1,3 +1,5 @@
+using Credere.Core.Results;
+
 namespace Credere.Core.Schedules;
 
 /// <summary>
@@ -12,6 +14,9 @@ public interface IScheduleGenerator
 {
     /// <summary>Generates the schedule for a request.</summary>
     /// <param name="request">The validated request.</param>
-    /// <returns>The schedule: one row per payment, the last row closing the loan at exactly zero.</returns>
-    AmortizationSchedule Generate(ScheduleRequest request);
+    /// <returns>
+    /// A schedule with one row per period and a final closing balance of zero, or a domain error
+    /// when the request cannot produce a valid schedule.
+    /// </returns>
+    Result<AmortizationSchedule, DomainError> Generate(ScheduleRequest request);
 }
