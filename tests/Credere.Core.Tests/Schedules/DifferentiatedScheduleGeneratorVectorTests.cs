@@ -23,9 +23,10 @@ namespace Credere.Core.Tests.Schedules;
 /// Dates follow "Periods and interest" in schedules.md. Interest fractions follow
 /// ISDA 2006 Definitions §4.16(b), (d), (e), (f) and (g). Principal and periodic interest
 /// are each rounded to cents with ties to even per docs/domain/value-objects.md, "Money".
-/// The loans use the M1-14 schedule fixtures and their dates, with two zero-rate variations
-/// targeting exact half-cent principal amounts. Expected rows were calculated with exact
-/// rational arithmetic and stored as decimal amounts.
+/// The loans use the M1-14 schedule fixtures and their dates, with zero-rate variations
+/// targeting half-cent rounding and the smallest increase in principal that avoids overpayment
+/// before maturity. Expected rows were calculated with exact rational arithmetic and stored
+/// as decimal amounts.
 /// </para>
 /// </remarks>
 public sealed class DifferentiatedScheduleGeneratorVectorTests
@@ -205,6 +206,18 @@ public sealed class DifferentiatedScheduleGeneratorVectorTests
                 new("2026-02-01", 10000.03m, 0.00m, 5000.02m, 5000.02m, 5000.01m),
                 new("2026-03-01", 5000.01m, 0.00m, 5000.01m, 5000.01m, 0.00m),
             ]),
+        // 0.04 / 5 = 0.008, which rounds to 0.01. This is one cent above the overpayment case from PR #51.
+        // Rows 1 and 2 each pay 0.01 principal and zero interest, leaving 0.03 and 0.02, respectively.
+        // Row 4 pays the last cent of principal. Row 5 takes the remaining balance, which is zero.
+        new("RegularPrincipalEqualsBalanceBeforeMaturity", 0.04m, 0m, "30E/360", 5, PaymentFrequency.Monthly,
+            "2026-01-01", "2026-02-01",
+            [
+                new("2026-02-01", 0.04m, 0.00m, 0.01m, 0.01m, 0.03m),
+                new("2026-03-01", 0.03m, 0.00m, 0.01m, 0.01m, 0.02m),
+                new("2026-04-01", 0.02m, 0.00m, 0.01m, 0.01m, 0.01m),
+                new("2026-05-01", 0.01m, 0.00m, 0.01m, 0.01m, 0.00m),
+                new("2026-06-01", 0.00m, 0.00m, 0.00m, 0.00m, 0.00m),
+            ]),
     ];
 
     /// <summary>Gets the names of the complete reference schedules.</summary>
@@ -265,6 +278,20 @@ public sealed class DifferentiatedScheduleGeneratorVectorTests
         Assert.All(rows.Take(rowCount - 1), row => Assert.Equal(rows[0].PrincipalDue, row.PrincipalDue));
         Assert.Equal(rows[^1].OpeningBalance, rows[^1].PrincipalDue);
         Assert.Equal(vector.Principal, vector.Rows.Sum(row => row.Principal));
+    }
+
+    [Fact]
+    public void ReferencePrincipal_roundingUpOnThreeCentsOverFivePayments_overpaysOnTheFourthRow()
+    {
+        // PR #51, reproduced for differentiated repayment under schedules.md §2.
+        // In cents, 3 / 5 = 0.6. Paying one cent on each of the first three rows exhausts the balance.
+        var principal = Euro(0.03m);
+        var regularPrincipal = Euro(0.01m);
+        var openingOnFourthRow = principal - regularPrincipal - regularPrincipal - regularPrincipal;
+
+        Assert.Equal(regularPrincipal, Euro(principal.Amount / 5));
+        Assert.Equal(Euro(0m), openingOnFourthRow);
+        Assert.Equal(Euro(-0.01m), openingOnFourthRow - regularPrincipal);
     }
 
     private static LocalDate Date(string iso) => LocalDatePattern.Iso.Parse(iso).Value;
