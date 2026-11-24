@@ -88,7 +88,7 @@ The row equations use exact integer cents. A row with a representable balance an
 
 ## 1. Annuity
 
-**Status:** Implemented (M1-14): `AnnuityScheduleGenerator`, constructed with an `IInterestCalculator`, whose `Generate` returns `Result<AmortizationSchedule, DomainError>`. Reference schedules: 16 complete schedules in `AnnuityScheduleGeneratorVectors`, recomputed independently by Codex and approved by the owner (PR #51). Planned (M1-14, after owner approval of the failure vectors on PR #51): rejecting a request whose rounded instalment would repay the balance before the last row. It does not implement `IScheduleGenerator` until that interface returns a `Result` too (owner decision on PR #51).
+**Status:** Implemented (M1-14): `AnnuityScheduleGenerator`, constructed with an `IInterestCalculator`, whose `Generate` returns `Result<AmortizationSchedule, DomainError>`. Reference schedules: 18 complete schedules in `AnnuityScheduleGeneratorVectors`, recomputed independently by Codex and approved by the owner (PR #51); the two instalment-tie schedules were added after the owner's approval and await it. Planned (M1-14, after owner approval of the failure vectors on PR #51): rejecting a request whose rounded instalment would repay the balance before the last row. It does not implement `IScheduleGenerator` until that interface returns a `Result` too (owner decision on PR #51).
 
 `AnnuityScheduleGenerator`. Equal `TotalPayment` on every row except the last, which absorbs the residual.
 
@@ -98,7 +98,7 @@ The row equations use exact integer cents. A row with a representable balance an
 payment = P × r × (1 + r)^n / ((1 + r)^n − 1)
 ```
 
-`n` is an integer, so the power stays in `decimal`. The payment becomes a `Money` once, so it is rounded once. The code evaluates the equivalent `P × r / (1 − (1+r)^−n)`, because `(1+r)^n` overflows a `decimal` for a long term at a high rate (600 months at 100%), while `(1+r)^−n` only shrinks.
+`n` is an integer, so the power is exact. The payment becomes a `Money` once, so it is rounded once. The code evaluates it as an exact ratio of integers and rounds once, half-even, so an exact tie goes to the even cent: EUR 100.50 at 12% over two months is exactly 51.005 and becomes 51.00, and EUR 4.50 at 100% is exactly 2.535 and becomes 2.54. A 28-digit `decimal` power would put such a tie a hair above or below it and round it the wrong way.
 
 For each row `i = 1..n−1`:
 

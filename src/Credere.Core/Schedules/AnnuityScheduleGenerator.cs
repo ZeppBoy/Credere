@@ -1,3 +1,5 @@
+using System.Numerics;
+using Credere.Core.DayCounts;
 using Credere.Core.Rates;
 using Credere.Core.Results;
 using Credere.Core.ValueObjects;
@@ -10,10 +12,10 @@ namespace Credere.Core.Schedules;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Instalment: <c>P × r × (1+r)^n / ((1+r)^n − 1)</c> with <c>r = nominalRate / periodsPerYear</c>, rounded once to cents
-/// half-even when it becomes a <see cref="Money"/>. It is computed in the equivalent form
-/// <c>P × r / (1 − (1+r)^−n)</c>, because <c>(1+r)^n</c> overflows a <see cref="decimal"/> for a long term at a high rate,
-/// while <c>(1+r)^−n</c> only shrinks. A zero rate uses <c>P / n</c>.
+/// Instalment: <c>P × r × (1+r)^n / ((1+r)^n − 1)</c> with <c>r = nominalRate / periodsPerYear</c>. It is evaluated as an
+/// exact ratio of integers and rounded to cents once, half-even, when it becomes a <see cref="Money"/>. A decimal
+/// evaluation of the power would put an exact half-cent tie (EUR 100.50 at 12% over two months is exactly 51.005) a hair
+/// above or below it, and round the wrong way. A zero rate uses <c>P / n</c>.
 /// </para>
 /// <para>
 /// Interest: every row's interest is <see cref="IInterestCalculator.Calculate"/> on the opening balance over the row's
@@ -29,6 +31,9 @@ namespace Credere.Core.Schedules;
 /// </remarks>
 public sealed class AnnuityScheduleGenerator
 {
+    private const int CentsPerUnit = 100;
+    private const int PercentDivisor = 100;
+
     private readonly IInterestCalculator interestCalculator;
 
     /// <summary>Initializes a new instance of the <see cref="AnnuityScheduleGenerator"/> class.</summary>
@@ -82,23 +87,48 @@ public sealed class AnnuityScheduleGenerator
     private static Money Instalment(ScheduleRequest request, int rowCount)
     {
         var periodsPerYear = SchedulePeriods.PeriodsPerYear(request.PaymentFrequency);
-        var periodicRate = request.Rate.NominalRate.Fraction / periodsPerYear;
 
-        if (periodicRate == 0m)
+        // Everything is an exact ratio of integers until the single rounding: P = pn / pd and r = rn / rd, where
+        // r = nominalRate% / 100 / periodsPerYear. Then P × r × (1+r)^n / ((1+r)^n − 1) is
+        // pn × rn × (rd + rn)^n / (pd × rd × ((rd + rn)^n − rd^n)).
+        var principal = ExactYearFraction.FromDecimal(request.Principal.Amount);
+        var percent = ExactYearFraction.FromDecimal(request.Rate.NominalRate.Value);
+        var rateNumerator = percent.Numerator;
+        var rateDenominator = percent.Denominator * PercentDivisor * periodsPerYear;
+
+        if (rateNumerator.IsZero)
         {
-            return request.Principal / rowCount;
+            return ToMoney(principal.Numerator, principal.Denominator * rowCount, request.Principal.Currency);
         }
 
-        // P × r / (1 − (1+r)^−n), by repeated multiplication so that n stays an integer power in decimal.
-        var discount = 1m / (1m + periodicRate);
-        var discountPower = 1m;
-        for (var period = 0; period < rowCount; period++)
+        var growth = BigInteger.Pow(rateDenominator + rateNumerator, rowCount);
+        var baseline = BigInteger.Pow(rateDenominator, rowCount);
+
+        return ToMoney(
+            principal.Numerator * rateNumerator * growth,
+            principal.Denominator * rateDenominator * (growth - baseline),
+            request.Principal.Currency);
+    }
+
+    // Rounds numerator / denominator to cents once, half to even on the magnitude (IEEE 754-2019 §4.3.1 roundTiesToEven;
+    // docs/domain/value-objects.md, "Money"). An exact tie goes to the even cent, so 51.005 becomes 51.00 and 2.535 becomes
+    // 2.54. The explicit conversion throws OverflowException when the cents do not fit a decimal.
+    private static Money ToMoney(BigInteger numerator, BigInteger denominator, string currency)
+    {
+        if (denominator.Sign < 0)
         {
-            discountPower *= discount;
+            (numerator, denominator) = (-numerator, -denominator);
         }
 
-        var amount = request.Principal.Amount * periodicRate / (1m - discountPower);
+        var cents = BigInteger.DivRem(BigInteger.Abs(numerator) * CentsPerUnit, denominator, out var remainder);
+        var twiceRemainder = remainder * 2;
+        if (twiceRemainder > denominator || (twiceRemainder == denominator && !cents.IsEven))
+        {
+            cents += BigInteger.One;
+        }
 
-        return Money.Create(amount, request.Principal.Currency).Value;
+        var amount = (decimal)cents / CentsPerUnit;
+
+        return Money.Create(numerator.Sign < 0 ? -amount : amount, currency).Value;
     }
 }
