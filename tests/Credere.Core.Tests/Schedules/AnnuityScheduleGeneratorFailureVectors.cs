@@ -35,5 +35,11 @@ internal static class AnnuityScheduleGeneratorFailureVectors
         // regular row repays 0.08 and the balance is below zero after row 12 (0.95 - 12 x 0.08 = -0.01).
         new("Tiny_6pct_13m", 0.95m, 6m, "30E/360", 13, PaymentFrequency.Monthly, "2026-01-15", "2026-02-15"),
 
+        // 0.04 EUR at 0%, 5 monthly rows: instalment 0.04 / 5 = 0.008 -> 0.01. Closing balances 0.03, 0.02, 0.01, 0.00 after
+        // rows 1-4. Row 4 pays 0.01 against an opening balance of exactly 0.01, so the balance is repaid in row 4 and the last
+        // row would be a zero payment. This is the boundary of the owner's ">=" rule (M1-23: no zero-payment rows); a ">"
+        // rule would accept it. NOT YET REVIEWED: the arithmetic is above, and it needs the same cross-vendor recomputation
+        // and owner approval as the other failure vectors.
+        new("Tiny_zeroRate_5m_exactBoundary", 0.04m, 0m, "30E/360", 5, PaymentFrequency.Monthly, "2026-01-15", "2026-02-15"),
     ];
 }

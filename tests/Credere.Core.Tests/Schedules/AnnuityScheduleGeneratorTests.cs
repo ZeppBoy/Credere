@@ -86,6 +86,58 @@ public sealed class AnnuityScheduleGeneratorTests
         Assert.Equal(0m, row.ClosingBalance.Amount);
     }
 
+    /// <summary>Gets the names of the requests that must be rejected.</summary>
+    public static TheoryData<string> FailureNames
+    {
+        get
+        {
+            var names = new TheoryData<string>();
+            foreach (var failure in AnnuityScheduleGeneratorFailureVectors.All)
+            {
+                names.Add(failure.Name);
+            }
+
+            return names;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(FailureNames))]
+    public void Generate_instalmentWouldRepayTheBalanceBeforeTheLastRow_returnsAValidationErrorOnPrincipal(string name)
+    {
+        // Owner decision on PR #51 and M1-23: a regular row whose principal reaches its opening balance (>=, so no
+        // zero-payment last row) makes the request a ValidationError on "principal".
+        var failure = AnnuityScheduleGeneratorFailureVectors.All.Single(v => string.Equals(v.Name, name, StringComparison.Ordinal));
+        var request = RequestOf(failure).Value;
+
+        var result = Generator.Generate(request);
+
+        Assert.False(result.IsSuccess, name);
+        var error = Assert.IsType<ValidationError>(result.Error);
+        Assert.Equal("principal", error.Field);
+    }
+
+    [Fact]
+    public void Generate_longFirstPeriod_allowsANegativeFirstPrincipal()
+    {
+        // 38,974 at 40% (Act/360), first payment five months after disbursement: the first period's interest exceeds the
+        // instalment, so row 1 adds to the balance. M1-23 keeps this allowed; only principal >= opening balance on a regular
+        // row is rejected. Only the sign is asserted; the amounts are not a reviewed vector.
+        var request = ScheduleRequest.Create(
+            Eur(38974m),
+            FixedRate.Create(new Percentage(40m), new Act360()).Value,
+            LoanTerm.FromMonths(24),
+            Date("2026-10-13"),
+            Date("2027-03-13"),
+            PaymentFrequency.Monthly).Value;
+
+        var result = Generator.Generate(request);
+
+        Assert.True(result.IsSuccess, result.IsSuccess ? string.Empty : result.Error.ToString());
+        Assert.True(result.Value.Rows[0].PrincipalDue.Amount < 0m);
+        Assert.True(result.Value.Rows[0].ClosingBalance.Amount > result.Value.Rows[0].OpeningBalance.Amount);
+    }
+
     private static ScheduleRequest MaxPrincipalRequest(int months, decimal ratePercent) =>
         ScheduleRequest.Create(
             Money.Create(decimal.MaxValue, "EUR").Value,

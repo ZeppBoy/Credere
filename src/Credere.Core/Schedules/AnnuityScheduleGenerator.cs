@@ -70,6 +70,17 @@ public sealed class AnnuityScheduleGenerator
                 var interest = interestCalculator.Calculate(request.Rate, opening, periods[index].Start, periods[index].End);
                 var isLast = index == rowCount - 1;
                 var principalDue = isLast ? opening : instalment - interest;
+
+                // A regular row must leave a positive balance for the last row: if its principal reaches the opening balance, the
+                // rounded instalment repays the loan early (a negative closing balance) or leaves a zero-payment last row.
+                // A negative principal, after a long first period, is allowed (docs/domain/schedules.md, M1-23).
+                if (!isLast && principalDue.Amount >= opening.Amount)
+                {
+                    return Result<AmortizationSchedule, DomainError>.Failure(new ValidationError(
+                        "principal",
+                        "too small for the term: the rounded instalment would repay the balance before the last row"));
+                }
+
                 var total = isLast ? interest + opening : instalment;
                 var closing = opening - principalDue;
 
