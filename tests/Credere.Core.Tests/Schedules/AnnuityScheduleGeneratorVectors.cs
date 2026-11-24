@@ -351,5 +351,29 @@ internal static partial class AnnuityScheduleGeneratorVectors
                 R("2026-12-15", 0.15m, 0.00m, 0.08m, 0.08m, 0.07m),
                 R("2027-01-15", 0.07m, 0.00m, 0.07m, 0.07m, 0.00m),
             ]),
+        // InstalmentTie_roundsDown_2m: 100.50 EUR at 12% (30E/360), 2 months, monthly, disbursed 2026-01-15, first payment 2026-02-15.
+        // Instalment: P x r x (1+r)^2 / ((1+r)^2 - 1), r = 12% / 12 = 0.01: 51.005000 -> 51.00 (EXACT HALF-CENT TIE: rounds to the even cent).
+        // Row 1: interest 100.50 x 12% x 1/12 = 1.005000 -> 1.00; principal 51.00 - 1.00 = 50.00; closing 50.50.  EXACT HALF-CENT TIE, rounds to the even cent.
+        // Row 2 (last): interest 50.50 x 12% x 1/12 = 0.505000 -> 0.50; principal = opening 50.50; total 51.00.  EXACT HALF-CENT TIE, rounds to the even cent.
+        // Half-cent ties in this schedule (half-even): row 1: exact 1.005 -> 1.00; row 2: exact 0.505 -> 0.50.
+        new(
+            "InstalmentTie_roundsDown_2m", 100.50m, 12m, "30E/360", 2, PaymentFrequency.Monthly,
+            "2026-01-15", "2026-02-15", 51.00m,
+            [
+                R("2026-02-15", 100.50m, 1.00m, 50.00m, 51.00m, 50.50m),
+                R("2026-03-15", 50.50m, 0.50m, 50.50m, 51.00m, 0.00m),
+            ]),
+        // InstalmentTie_roundsUp_2m: 4.50 EUR at 100% (30E/360), 2 months, monthly, disbursed 2026-01-15, first payment 2026-02-15.
+        // Instalment: P x r x (1+r)^2 / ((1+r)^2 - 1), r = 100% / 12 = 0.08333333333: 2.535000 -> 2.54 (EXACT HALF-CENT TIE: rounds to the even cent).
+        // Row 1: interest 4.50 x 100% x 1/12 = 0.375000 -> 0.38; principal 2.54 - 0.38 = 2.16; closing 2.34.  EXACT HALF-CENT TIE, rounds to the even cent.
+        // Row 2 (last): interest 2.34 x 100% x 1/12 = 0.195000 -> 0.20; principal = opening 2.34; total 2.54.  EXACT HALF-CENT TIE, rounds to the even cent.
+        // Half-cent ties in this schedule (half-even): row 1: exact 0.375 -> 0.38; row 2: exact 0.195 -> 0.20.
+        new(
+            "InstalmentTie_roundsUp_2m", 4.50m, 100m, "30E/360", 2, PaymentFrequency.Monthly,
+            "2026-01-15", "2026-02-15", 2.54m,
+            [
+                R("2026-02-15", 4.50m, 0.38m, 2.16m, 2.54m, 2.34m),
+                R("2026-03-15", 2.34m, 0.20m, 2.34m, 2.54m, 0.00m),
+            ]),
     ];
 }
