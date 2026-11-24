@@ -55,7 +55,8 @@ public sealed record ScheduleRequest
     /// <returns>
     /// The request, or a <see cref="ValidationError"/> on field <c>paymentFrequency</c> (not a defined value),
     /// <c>firstPaymentDate</c> (not after the disbursement date) or <c>term</c> (not a whole number of payment
-    /// periods, for example 10 months with quarterly payments). There is no maximum length of the first period in M1.
+    /// periods, or the last payment date is outside the calendar's supported range).
+    /// There is no maximum length of the first period in M1.
     /// </returns>
     /// <exception cref="ArgumentNullException">A reference argument is <see langword="null"/>, which is a programmer error.</exception>
     public static Result<ScheduleRequest, DomainError> Create(
@@ -80,9 +81,25 @@ public sealed record ScheduleRequest
             return Fail("firstPaymentDate", "must be after the disbursement date");
         }
 
-        if (term.Months % SchedulePeriods.MonthsPerPeriod(paymentFrequency) != 0)
+        var monthsPerPeriod = SchedulePeriods.MonthsPerPeriod(paymentFrequency);
+        if (term.Months % monthsPerPeriod != 0)
         {
             return Fail("term", "must be a whole number of payment periods (a multiple of 3 months for quarterly payments)");
+        }
+
+        const string lastPaymentOutOfRange = "the last payment date must be within the calendar's supported range";
+        try
+        {
+            _ = SchedulePeriods.PaymentDate(firstPaymentDate, paymentFrequency, term.Months / monthsPerPeriod);
+        }
+        catch (OverflowException)
+        {
+            return Fail("term", lastPaymentOutOfRange);
+        }
+        catch (IndexOutOfRangeException) when (firstPaymentDate.Calendar == CalendarSystem.UmAlQura)
+        {
+            // NodaTime's Um Al Qura calculator can reach the end of its year table before checking overflow.
+            return Fail("term", lastPaymentOutOfRange);
         }
 
         return Result<ScheduleRequest, DomainError>.Success(

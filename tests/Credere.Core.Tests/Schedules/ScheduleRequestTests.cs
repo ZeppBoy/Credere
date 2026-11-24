@@ -114,6 +114,47 @@ public sealed class ScheduleRequestTests
     }
 
     [Theory]
+    [InlineData(2, PaymentFrequency.Monthly, 12)]
+    [InlineData(6, PaymentFrequency.Quarterly, 10)]
+    public void Create_lastPaymentBeyondTheCalendarRange_returnsAValidationErrorOnTerm(
+        int months, PaymentFrequency frequency, int firstPaymentMonth)
+    {
+        var firstPayment = new LocalDate(CalendarSystem.Iso.MaxYear, firstPaymentMonth, 31);
+        var result = Create(months, frequency, disbursement: firstPayment.PlusMonths(-1), firstPayment: firstPayment);
+
+        Assert.False(result.IsSuccess);
+        var error = Assert.IsType<ValidationError>(result.Error);
+        Assert.Equal("term", error.Field);
+        Assert.Contains("last payment date", error.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Create_lastPaymentBeyondTheUmAlQuraCalendarRange_returnsAValidationErrorOnTerm()
+    {
+        var calendar = CalendarSystem.UmAlQura;
+        var year = calendar.MaxYear;
+        var firstPayment = new LocalDate(year, calendar.GetMonthsInYear(year), 1, calendar);
+        var result = Create(LoanTerm.MaxMonths, disbursement: firstPayment.PlusMonths(-1), firstPayment: firstPayment);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("term", Assert.IsType<ValidationError>(result.Error).Field);
+    }
+
+    [Theory]
+    [InlineData(1, PaymentFrequency.Monthly, 12)]
+    [InlineData(2, PaymentFrequency.Monthly, 11)]
+    [InlineData(3, PaymentFrequency.Quarterly, 12)]
+    [InlineData(6, PaymentFrequency.Quarterly, 9)]
+    public void Create_lastPaymentInTheFinalCalendarMonth_isAccepted(
+        int months, PaymentFrequency frequency, int firstPaymentMonth)
+    {
+        var lastYear = CalendarSystem.Iso.MaxYear;
+        var firstPayment = new LocalDate(lastYear, firstPaymentMonth, CalendarSystem.Iso.GetDaysInMonth(lastYear, firstPaymentMonth));
+
+        Assert.True(Create(months, frequency, disbursement: firstPayment.PlusMonths(-1), firstPayment: firstPayment).IsSuccess);
+    }
+
+    [Theory]
     [InlineData(0)]
     [InlineData(7)]
     [InlineData(-1)]

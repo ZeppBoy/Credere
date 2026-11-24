@@ -4,12 +4,12 @@ Credere generates three kinds of amortization schedule from the shared kernel. A
 
 ## Public contract
 
-**Status:** Implemented (M1-13). Reference dates approved by the owner on 2026-11-20 (PR #43).
+**Status:** Implemented (M1-13 and M1-23). Reference dates approved by the owner on 2026-11-20 (PR #43).
 
 ```csharp
 public interface IScheduleGenerator
 {
-    AmortizationSchedule Generate(ScheduleRequest request);
+    Result<AmortizationSchedule, DomainError> Generate(ScheduleRequest request);
 }
 
 public enum PaymentFrequency
@@ -49,6 +49,7 @@ public sealed record ScheduleRow(
     int Index,
     LocalDate PaymentDate,
     Money OpeningBalance,
+    Money CapitalisedInterest,
     Money InterestDue,
     Money PrincipalDue,
     Money TotalPayment,
@@ -62,17 +63,20 @@ public sealed record ScheduleRow(
 - `paymentFrequency` that is not `Monthly` or `Quarterly`;
 - `firstPaymentDate` that is not strictly after `disbursementDate` (field `firstPaymentDate`). There is no maximum length of the first period in M1;
 - a `term` that is not a whole number of payment periods, for example 10 months with quarterly payments (field `term`).
+- a `term` whose last payment date falls outside the calendar's supported range (field `term`).
 
-Invariants (enforced by `AmortizationSchedule.Create`, which returns a `ValidationError` on field `rows` that names the first row that breaks one):
+`Generate` returns a `Result` so a validated request that cannot produce a valid schedule can return a domain error. `AmortizationSchedule.Create` reports an early principal repayment on field `principal` and other invariant violations on field `rows`. It checks these invariants:
 
 - `Rows` is non-empty, and every amount is in the principal's currency.
 - `Rows[0].OpeningBalance == Principal`.
 - `Rows[^1].ClosingBalance == Money.Zero(Principal.Currency)`, exactly, because the last row absorbs the residual (see [Rounding and residuals](#rounding-and-residuals)).
-- For each row: `OpeningBalance - PrincipalDue == ClosingBalance` and `InterestDue + PrincipalDue == TotalPayment`.
+- On each row before maturity, `PrincipalDue < OpeningBalance`.
+- For each row, `OpeningBalance + CapitalisedInterest - PrincipalDue == ClosingBalance` and `InterestDue + PrincipalDue == TotalPayment`.
+- `CapitalisedInterest` records the period interest added to the balance. When no interest is capitalised, the field holds zero in the row's currency.
 - For each adjacent pair: `Rows[i].ClosingBalance == Rows[i+1].OpeningBalance`.
 - Dates strictly increase.
 
-The row equations are checked on exact amounts (integer cents), so an amount near `decimal.MaxValue` gives a `ValidationError`, never a silently accepted total or an `OverflowException`. `Create` copies the rows, and `Rows` is read-only. The schedule holds a collection, so it implements equality itself: two schedules are equal when their rows are equal one by one. `ScheduleRow.Index` is not checked against the row's position, because this contract does not list it as an invariant.
+The row equations use exact integer cents. A row with a representable balance and payment can pass even if an intermediate sum exceeds `decimal.MaxValue`. A difference of one cent still gives a `ValidationError`. `Create` copies the rows, and `Rows` is read-only. The schedule holds a collection, so it implements equality itself: two schedules are equal when their rows are equal one by one. `ScheduleRow.Index` is not checked against the row's position, because this contract does not list it as an invariant.
 
 ## Periods and interest (all generators)
 
@@ -80,7 +84,7 @@ The row equations are checked on exact amounts (integer cents), so an amount nea
 
 - **Payment dates.** Row `i` (1-based) falls on `FirstPaymentDate.PlusMonths((i − 1) × 12 / periodsPerYear)`. Each date is computed from `FirstPaymentDate` rather than from the previous row, so a month-end start doesn't drift: 31 January gives 28 February, then 31 March, not 28 March.
 - **Interest period.** Row `i` accrues from `periodStartᵢ` (inclusive) to `PaymentDateᵢ` (exclusive). `periodStart₁ = DisbursementDate` and `periodStartᵢ = PaymentDateᵢ₋₁`.
-- **Interest.** Every generator computes `interestDueᵢ = IInterestCalculator.Calculate(Rate, openingBalanceᵢ, periodStartᵢ, PaymentDateᵢ)` ([rates.md](rates.md#iinterestcalculator--the-single-entry-point)). The schedule's interest is therefore the same number Servicing accrues for that period, under the rate's own day-count convention.
+- **Interest.** Every generator computes the period accrual with `IInterestCalculator.Calculate(Rate, openingBalanceᵢ, periodStartᵢ, PaymentDateᵢ)`. `InterestDue` records the cash interest due, and `CapitalisedInterest` records the interest added to the balance. Their sum is the same amount Servicing accrues under the rate's day-count convention. [Interest calculator](rates.md#iinterestcalculator--the-single-entry-point)
 
 ## 1. Annuity
 
@@ -146,6 +150,7 @@ Two modes:
 
 - Every monetary field in `ScheduleRow` is a `Money` and is therefore stored at 2 decimal places with banker's rounding.
 - The **residual** goes into the last row's `PrincipalDue`, so `Rows[^1].ClosingBalance` is exactly zero.
+- If rounded principal due reaches or exceeds the opening balance before maturity, the request returns a `ValidationError` on `principal`. A negative principal due after a long first period remains valid. Bullet rows with a positive opening balance can have zero cash dues before maturity.
 - The residual has no small fixed bound. The annuity instalment is rounded to the cent once, and that rounding error compounds over the term at the loan's rate. Example: 250,000 at 12% nominal, 360 monthly rows, 30E/360, payment day ≤ 28. The regular payment is 2,571.53 and the last is 2,576.59, a 5.06 difference against 360 rows. Mismatches between day count and nominal rate (see [Annuity](#1-annuity)) add to it. Reference cases assert the exact last row.
 - Putting the residual on the first row instead is **not** used, because the final payment is the one that closes out the loan.
 

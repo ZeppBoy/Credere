@@ -33,13 +33,16 @@ public sealed record AmortizationSchedule
     /// <param name="principal">The principal the schedule repays.</param>
     /// <param name="rows">The rows, in payment order. The list is copied.</param>
     /// <returns>
-    /// The schedule, or a <see cref="ValidationError"/> on field <c>rows</c> that names the first row that breaks an
-    /// invariant. The invariants are:
+    /// The schedule, or a <see cref="ValidationError"/> identifying the first invariant violation.
+    /// Early principal repayment is reported on <c>principal</c>. Other violations are reported on <c>rows</c>.
+    /// The invariants are:
     /// <list type="bullet">
     /// <item><description>there is at least one row, and every amount is in the currency of <paramref name="principal"/>;</description></item>
     /// <item><description>the first opening balance equals the principal;</description></item>
     /// <item><description>the last closing balance is exactly zero;</description></item>
-    /// <item><description>in each row, opening balance minus principal due equals the closing balance, and interest due plus principal due equals the total payment;</description></item>
+    /// <item><description>in each row before maturity, principal due is strictly less than the opening balance;</description></item>
+    /// <item><description>opening balance plus capitalised interest minus principal due equals the closing balance;</description></item>
+    /// <item><description>interest due plus principal due equals the total payment;</description></item>
     /// <item><description>each closing balance equals the next opening balance;</description></item>
     /// <item><description>the payment dates strictly increase.</description></item>
     /// </list>
@@ -55,7 +58,7 @@ public sealed record AmortizationSchedule
 
         return violation is null
             ? Result<AmortizationSchedule, DomainError>.Success(new AmortizationSchedule(Array.AsReadOnly(copy)))
-            : Result<AmortizationSchedule, DomainError>.Failure(new ValidationError("rows", violation));
+            : Result<AmortizationSchedule, DomainError>.Failure(violation);
     }
 
     /// <inheritdoc />
@@ -79,11 +82,11 @@ public sealed record AmortizationSchedule
         $"{Rows.Count.ToString(CultureInfo.InvariantCulture)} rows, principal {Principal}, " +
         $"{LocalDatePattern.Iso.Format(Rows[0].PaymentDate)} to {LocalDatePattern.Iso.Format(Rows[^1].PaymentDate)}";
 
-    private static string? FindViolation(Money principal, ScheduleRow[] rows)
+    private static ValidationError? FindViolation(Money principal, ScheduleRow[] rows)
     {
         if (rows.Length == 0)
         {
-            return "must contain at least one row";
+            return new ValidationError("rows", "must contain at least one row");
         }
 
         var zero = Money.Zero(principal.Currency);
@@ -95,41 +98,49 @@ public sealed record AmortizationSchedule
 
             if (row is null)
             {
-                return $"row {number} is null";
+                return new ValidationError("rows", $"row {number} is null");
             }
 
             if (!AllInCurrency(row, principal.Currency))
             {
-                return $"row {number} has an amount that is not in {principal.Currency}";
+                return new ValidationError("rows", $"row {number} has an amount that is not in {principal.Currency}");
             }
 
             if (i == 0 && row.OpeningBalance != principal)
             {
-                return "the opening balance of row 1 must equal the principal";
+                return new ValidationError("rows", "the opening balance of row 1 must equal the principal");
             }
 
-            if (Cents(row.OpeningBalance) - Cents(row.PrincipalDue) != Cents(row.ClosingBalance))
+            if (i < rows.Length - 1 && row.PrincipalDue >= row.OpeningBalance)
             {
-                return $"row {number}: the opening balance minus the principal due must equal the closing balance";
+                return new ValidationError("principal", $"row {number}: principal due must be less than the opening balance before maturity");
             }
 
-            if (Cents(row.InterestDue) + Cents(row.PrincipalDue) != Cents(row.TotalPayment))
+            var principalDue = Cents(row.PrincipalDue);
+            if (Cents(row.OpeningBalance) + Cents(row.CapitalisedInterest) - principalDue != Cents(row.ClosingBalance))
             {
-                return $"row {number}: the interest due plus the principal due must equal the total payment";
+                return new ValidationError("rows", $"row {number}: the opening balance plus capitalised interest minus the principal due must equal the closing balance");
+            }
+
+            if (Cents(row.InterestDue) + principalDue != Cents(row.TotalPayment))
+            {
+                return new ValidationError("rows", $"row {number}: the interest due plus the principal due must equal the total payment");
             }
 
             if (i > 0 && rows[i - 1].ClosingBalance != row.OpeningBalance)
             {
-                return $"row {number}: the opening balance must equal the closing balance of row {i.ToString(CultureInfo.InvariantCulture)}";
+                return new ValidationError("rows", $"row {number}: the opening balance must equal the closing balance of row {i.ToString(CultureInfo.InvariantCulture)}");
             }
 
             if (i > 0 && row.PaymentDate <= rows[i - 1].PaymentDate)
             {
-                return $"row {number}: the payment date must be after the date of row {i.ToString(CultureInfo.InvariantCulture)}";
+                return new ValidationError("rows", $"row {number}: the payment date must be after the date of row {i.ToString(CultureInfo.InvariantCulture)}");
             }
         }
 
-        return rows[^1].ClosingBalance != zero ? "the closing balance of the last row must be exactly zero" : null;
+        return rows[^1].ClosingBalance != zero
+            ? new ValidationError("rows", "the closing balance of the last row must be exactly zero")
+            : null;
     }
 
     // The row equations are checked on exact integer cents. Money arithmetic rounds to 28 digits and throws on
@@ -146,6 +157,7 @@ public sealed record AmortizationSchedule
 
     private static bool AllInCurrency(ScheduleRow row, string currency) =>
         row.OpeningBalance.Currency == currency
+        && row.CapitalisedInterest.Currency == currency
         && row.InterestDue.Currency == currency
         && row.PrincipalDue.Currency == currency
         && row.TotalPayment.Currency == currency
