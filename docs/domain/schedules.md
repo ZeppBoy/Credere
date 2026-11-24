@@ -88,7 +88,7 @@ The row equations use exact integer cents. A row with a representable balance an
 
 ## 1. Annuity
 
-**Status:** Implemented (M1-14): `AnnuityScheduleGenerator`, constructed with an `IInterestCalculator`, whose `Generate` returns `Result<AmortizationSchedule, DomainError>`. Reference schedules: 18 complete schedules in `AnnuityScheduleGeneratorVectors`, recomputed independently by Codex and approved by the owner (PR #51). The generator rejects a request whose rounded instalment would repay the balance before the last row (below). The class does not implement `IScheduleGenerator` until M1-23 changes that interface to return a `Result` too (owner decision on PR #51).
+**Status:** Implemented (M1-14): `AnnuityScheduleGenerator`, constructed with an `IInterestCalculator`, whose `Generate` returns `Result<AmortizationSchedule, DomainError>`. Reference schedules: 18 complete schedules in `AnnuityScheduleGeneratorVectors`, recomputed independently by Codex and approved by the owner (PR #51). A request whose rounded instalment would repay the balance before the last row is rejected by `AmortizationSchedule.Create` (below). It implements `IScheduleGenerator`.
 
 `AnnuityScheduleGenerator`. Equal `TotalPayment` on every row except the last, which absorbs the residual.
 
@@ -120,7 +120,7 @@ In every other case the difference builds up in the last row. That includes the 
 **Edge cases.**
 - Zero rate: `payment = P / n`, interest is zero, and the last row absorbs the rounding.
 - Long first period: if the first period's interest exceeds the instalment, that row's `PrincipalDue` is negative and the balance grows. The schedule contract allows it, and the generator does not reject it.
-- Tiny principal: the rounded instalment can repay the balance before the last row (0.03 over 5 rows at 0%: instalment 0.006 becomes 0.01, so the balance would be −0.01 after row 4). Under 1.00 at 6% it happens too. A regular row (1..n−1) whose `PrincipalDue` is greater than or equal to its `OpeningBalance` returns a `ValidationError` on `principal`; `>=` means no zero-payment last row (owner decision, M1-23). 0.04 at 0% over 5 rows is the boundary: the balance reaches exactly 0.00 after row 4.
+- Tiny principal: the rounded instalment can repay the balance before the last row (0.03 over 5 rows at 0%: instalment 0.006 becomes 0.01, so the balance would be −0.01 after row 4). Under 1.00 at 6% it happens too. A regular row (1..n−1) whose `PrincipalDue` is greater than or equal to its `OpeningBalance` makes `AmortizationSchedule.Create`, and so `Generate`, return a `ValidationError` on `principal`; `>=` means no zero-payment last row (owner decision, M1-23). 0.04 at 0% over 5 rows is the boundary: the balance reaches exactly 0.00 after row 4.
 - An amount so large that the instalment, a balance or an interest overflows a `decimal` returns a `ValidationError` on `principal`; one too large to keep cents is rejected by the schedule's exact row check.
 - Floating rate: the schedule is generated at origination against the rate active then, and re-generated on reset dates (M2+, once reset tracking lands).
 - `EffectiveRate`: blocked on [open question #10](../open-questions.md). Its periodic rate `(1 + R)^(1/periodsPerYear) − 1` needs a fractional power.

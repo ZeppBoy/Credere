@@ -148,6 +148,15 @@ public sealed class AnnuityScheduleGeneratorTests
             PaymentFrequency.Monthly).Value;
 
     [Fact]
+    public void Generate_throughTheInterface_returnsTheSameSchedule()
+    {
+        var viaInterface = Assert.IsAssignableFrom<IScheduleGenerator>(Generator);
+        var request = RequestOf(AnnuityScheduleGeneratorVectors.All[0]).Value;
+
+        Assert.Equal(Generator.Generate(request).Value, viaInterface.Generate(request).Value);
+    }
+
+    [Fact]
     public void Generate_nullRequest_throws()
     {
         Assert.Throws<ArgumentNullException>(() => Generator.Generate(null!));

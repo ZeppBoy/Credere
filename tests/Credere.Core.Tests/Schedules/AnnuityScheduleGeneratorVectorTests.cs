@@ -130,6 +130,7 @@ public sealed class AnnuityScheduleGeneratorVectorTests
             i + 1,
             Date(row.PaymentDate),
             Eur(row.OpeningBalance),
+            Eur(0m),
             Eur(row.InterestDue),
             Eur(row.PrincipalDue),
             Eur(row.TotalPayment),

@@ -29,7 +29,7 @@ namespace Credere.Core.Schedules;
 /// project, recomputed independently by a reviewer from another vendor and approved by the owner on PR #51.
 /// </para>
 /// </remarks>
-public sealed class AnnuityScheduleGenerator
+public sealed class AnnuityScheduleGenerator : IScheduleGenerator
 {
     private const int CentsPerUnit = 100;
     private const int PercentDivisor = 100;
@@ -48,9 +48,7 @@ public sealed class AnnuityScheduleGenerator
         this.interestCalculator = interestCalculator;
     }
 
-    /// <summary>Generates the schedule for a request.</summary>
-    /// <param name="request">A validated request.</param>
-    /// <returns>The schedule, or a <see cref="ValidationError"/> when the request cannot be scheduled.</returns>
+    /// <inheritdoc />
     public Result<AmortizationSchedule, DomainError> Generate(ScheduleRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -64,30 +62,23 @@ public sealed class AnnuityScheduleGenerator
             var instalment = Instalment(request, rowCount);
             var rows = new List<ScheduleRow>(rowCount);
             var opening = request.Principal;
+            var noCapitalisation = Money.Zero(request.Principal.Currency);
 
             for (var index = 0; index < rowCount; index++)
             {
                 var interest = interestCalculator.Calculate(request.Rate, opening, periods[index].Start, periods[index].End);
                 var isLast = index == rowCount - 1;
                 var principalDue = isLast ? opening : instalment - interest;
-
-                // A regular row must leave a positive balance for the last row: if its principal reaches the opening balance, the
-                // rounded instalment repays the loan early (a negative closing balance) or leaves a zero-payment last row.
-                // A negative principal, after a long first period, is allowed (docs/domain/schedules.md, M1-23).
-                if (!isLast && principalDue.Amount >= opening.Amount)
-                {
-                    return Result<AmortizationSchedule, DomainError>.Failure(new ValidationError(
-                        "principal",
-                        "too small for the term: the rounded instalment would repay the balance before the last row"));
-                }
-
                 var total = isLast ? interest + opening : instalment;
                 var closing = opening - principalDue;
 
-                rows.Add(new ScheduleRow(index + 1, periods[index].End, opening, interest, principalDue, total, closing));
+                rows.Add(new ScheduleRow(
+                    index + 1, periods[index].End, opening, noCapitalisation, interest, principalDue, total, closing));
                 opening = closing;
             }
 
+            // Create enforces the schedule invariants, among them the rule that a regular row's principal stays below its
+            // opening balance (docs/domain/schedules.md, "Public contract"), so a tiny principal comes back as a ValidationError.
             return AmortizationSchedule.Create(request.Principal, rows);
         }
         catch (OverflowException)
