@@ -27,6 +27,8 @@ internal readonly struct ExactInterest
     private const int CentsPerUnit = 100;
     private const int PercentDivisor = 100;
 
+    private static readonly BigInteger MaxCoefficient = new(decimal.MaxValue);
+
     private readonly BigInteger numerator;
     private readonly BigInteger denominator;
 
@@ -80,7 +82,11 @@ internal readonly struct ExactInterest
     /// <summary>Rounds once, half to even, to cents, and creates the <see cref="Money"/>.</summary>
     /// <param name="currency">The currency of the balance the interest was calculated on.</param>
     /// <returns>The rounded interest.</returns>
-    /// <exception cref="OverflowException">The rounded amount is outside the range of <see cref="decimal"/>, which <see cref="Money"/> cannot hold.</exception>
+    /// <exception cref="OverflowException">
+    /// The rounded amount cannot be represented exactly as a <see cref="decimal"/>: it is above
+    /// <see cref="decimal.MaxValue"/>, or its cents do not fit the 96-bit coefficient of a decimal. <see cref="Money"/>
+    /// cannot hold such an amount, and it is never silently reduced.
+    /// </exception>
     public Money ToMoney(string currency)
     {
         var cents = BigInteger.DivRem(BigInteger.Abs(numerator) * CentsPerUnit, Denominator, out var remainder);
@@ -92,11 +98,38 @@ internal readonly struct ExactInterest
             cents += BigInteger.One;
         }
 
-        // Split into whole units and cents, so a result of decimal.MaxValue is not first multiplied by 100.
-        var units = BigInteger.DivRem(cents, CentsPerUnit, out var centsPart);
-        var amount = (decimal)units + ((decimal)centsPart / CentsPerUnit);
-
         // The balance's currency was validated when the balance was created, so this cannot fail.
-        return Money.Create(numerator.Sign < 0 ? -amount : amount, currency).Value;
+        return Money.Create(ToDecimal(cents, numerator.Sign < 0), currency).Value;
+    }
+
+    /// <summary>
+    /// Converts a count of cents to the <see cref="decimal"/> that holds it exactly, using the fewest decimal places
+    /// (0, 1 or 2) so that a whole-unit result such as <c>decimal.MaxValue</c> still fits its 96-bit coefficient.
+    /// </summary>
+    private static decimal ToDecimal(BigInteger cents, bool negative)
+    {
+        const int places = 2;
+        const int bitsPerWord = 32;
+        const uint wordMask = uint.MaxValue;
+
+        var scale = places;
+        var coefficient = cents;
+        while (scale > 0 && (coefficient % 10).IsZero)
+        {
+            coefficient /= 10;
+            scale--;
+        }
+
+        if (coefficient > MaxCoefficient)
+        {
+            throw new OverflowException("The rounded interest cannot be represented exactly as a decimal amount.");
+        }
+
+        return new decimal(
+            (int)(uint)(coefficient & wordMask),
+            (int)(uint)((coefficient >> bitsPerWord) & wordMask),
+            (int)(uint)((coefficient >> (2 * bitsPerWord)) & wordMask),
+            negative && !coefficient.IsZero,
+            (byte)scale);
     }
 }

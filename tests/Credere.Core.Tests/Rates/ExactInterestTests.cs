@@ -96,6 +96,70 @@ public sealed class ExactInterestTests
             () => Calculator.Calculate(rate, balance, Date("2023-01-01"), Date("2025-01-01")));
     }
 
+    [Theory]
+    [InlineData("79011692124881101698479622602")] // 366/365 gives decimal.MaxValue + 0.16 once rounded: above the maximum.
+    [InlineData("79011692124881101698479622601")] // 79228162514264337593543950334.15: within bounds, cents exceed the 96-bit coefficient.
+    [InlineData("-79011692124881101698479622602")]
+    [InlineData("-79011692124881101698479622601")]
+    public void Calculate_roundedInterestThatDecimalCannotHoldExactly_throwsOverflowException(string balance)
+    {
+        // Source: the two reproducers in Codex's review of PR #47 and the owner's decision of 2026-11-20. 100% over
+        // 1 Jan 2024 to 1 Jan 2025 under ACT/365 Fixed is 366/365 of the balance. Recomputed here with exact rationals.
+        var rate = FixedRate.Create(new Percentage(100m), new Act365Fixed()).Value;
+        var money = Money.Create(
+            decimal.Parse(balance, System.Globalization.CultureInfo.InvariantCulture), "EUR").Value;
+
+        var exception = Assert.Throws<OverflowException>(
+            () => Calculator.Calculate(rate, money, Date("2024-01-01"), Date("2025-01-01")));
+
+        Assert.Contains("represented exactly", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("79228162514264337593543950335", "79228162514264337593543950335")] // decimal.MaxValue, whole units (approved vector).
+    [InlineData("-79228162514264337593543950335", "-79228162514264337593543950335")]
+    [InlineData("792281625142643375935439503.35", "792281625142643375935439503.35")] // Coefficient exactly 2^96 - 1 at two places.
+    [InlineData("-792281625142643375935439503.35", "-792281625142643375935439503.35")]
+    [InlineData("7922816251426433759354395033.5", "7922816251426433759354395033.5")] // One place, coefficient 2^96 - 1 after removing a zero.
+    public void Calculate_largestAmountsThatFitExactly_areReturnedUnchanged(string balance, string expected)
+    {
+        // 100% over 365 days under ACT/365 Fixed is exactly the balance, so the interest equals it.
+        var rate = FixedRate.Create(new Percentage(100m), new Act365Fixed()).Value;
+        var money = Money.Create(
+            decimal.Parse(balance, System.Globalization.CultureInfo.InvariantCulture), "EUR").Value;
+
+        var interest = Calculator.Calculate(rate, money, Date("2023-01-01"), Date("2024-01-01"));
+
+        Assert.Equal(
+            decimal.Parse(expected, System.Globalization.CultureInfo.InvariantCulture),
+            interest.Amount);
+    }
+
+    [Fact]
+    public void Calculate_resultAboveTheLargestTwoPlaceAmount_throwsOverflowException()
+    {
+        // 792281625142643375935439503.35 is the largest two-place amount (coefficient 2^96 - 1). At 100% over 366/365
+        // the interest on it is 366/365 times larger, so its cents need more than 96 bits and the result must throw.
+        var rate = FixedRate.Create(new Percentage(100m), new Act365Fixed()).Value;
+        var money = Money.Create(792281625142643375935439503.35m, "EUR").Value;
+
+        Assert.Throws<OverflowException>(
+            () => Calculator.Calculate(rate, money, Date("2024-01-01"), Date("2025-01-01")));
+    }
+
+    [Fact]
+    public void ToMoney_negativeResultThatRoundsToZero_isPositiveZero()
+    {
+        // -0.004 rounds to zero; the amount must be 0.00, not negative zero.
+        var tiny = ExactInterest.Of(
+            Money.Create(-0.04m, "EUR").Value, new Percentage(10m), new ExactYearFraction(1, 1));
+
+        var money = tiny.ToMoney("EUR");
+
+        Assert.Equal(0m, money.Amount);
+        Assert.DoesNotContain("-", money.Amount.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Calculate_customConvention_usesTheExactValueOfTheDecimalItReturns()
     {
