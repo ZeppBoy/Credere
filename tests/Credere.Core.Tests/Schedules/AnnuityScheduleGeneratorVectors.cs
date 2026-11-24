@@ -25,9 +25,7 @@ namespace Credere.Core.Tests.Schedules;
 /// </para>
 /// <para>
 /// Method: a Python script with exact rational arithmetic (<c>fractions.Fraction</c>), day counts coded from the ISDA
-/// definitions with <c>datetime</c> and <c>calendar</c>, and half-even rounding once per amount. It checked that no
-/// instalment lies within 1e-9 cents of a rounding tie, so the 28-digit <see cref="decimal"/> arithmetic of the
-/// implementation cannot round it differently. The arithmetic of rows 1, 2 and the last is in the comment on each vector.
+/// definitions with <c>datetime</c> and <c>calendar</c>, and half-even rounding once per amount. It checked that no instalment of the first 14 schedules lies within 1e-9 cents of a rounding tie. That check never covered an exact tie, which is why the cross-vendor review found the rounding defect; <c>InstalmentTie_roundsDown_2m</c> and <c>InstalmentTie_roundsUp_2m</c> were added for it, and the generator now rounds the exact ratio. The arithmetic of rows 1, 2 and the last is in the comment on each vector.
 /// </para>
 /// </remarks>
 internal static partial class AnnuityScheduleGeneratorVectors
