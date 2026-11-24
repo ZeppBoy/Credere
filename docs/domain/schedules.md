@@ -88,6 +88,8 @@ The row equations use exact integer cents. A row with a representable balance an
 
 ## 1. Annuity
 
+**Status:** Implemented (M1-14): `AnnuityScheduleGenerator`, constructed with an `IInterestCalculator`, whose `Generate` returns `Result<AmortizationSchedule, DomainError>`. Reference schedules: 16 complete schedules in `AnnuityScheduleGeneratorVectors`, recomputed independently by Codex and approved by the owner (PR #51). Planned (M1-14, after owner approval of the failure vectors on PR #51): rejecting a request whose rounded instalment would repay the balance before the last row. It does not implement `IScheduleGenerator` until that interface returns a `Result` too (owner decision on PR #51).
+
 `AnnuityScheduleGenerator`. Equal `TotalPayment` on every row except the last, which absorbs the residual.
 
 **Instalment.** For principal `P`, nominal periodic rate `r = NominalRate.Fraction / periodsPerYear`, and `n` payments:
@@ -96,7 +98,7 @@ The row equations use exact integer cents. A row with a representable balance an
 payment = P × r × (1 + r)^n / ((1 + r)^n − 1)
 ```
 
-`n` is an integer, so the power stays in `decimal`. The payment becomes a `Money` once, so it is rounded once.
+`n` is an integer, so the power stays in `decimal`. The payment becomes a `Money` once, so it is rounded once. The code evaluates the equivalent `P × r / (1 − (1+r)^−n)`, because `(1+r)^n` overflows a `decimal` for a long term at a high rate (600 months at 100%), while `(1+r)^−n` only shrinks.
 
 For each row `i = 1..n−1`:
 
@@ -117,6 +119,9 @@ In every other case the difference builds up in the last row. That includes the 
 
 **Edge cases.**
 - Zero rate: `payment = P / n`, interest is zero, and the last row absorbs the rounding.
+- Long first period: if the first period's interest exceeds the instalment, that row's `PrincipalDue` is negative and the balance grows. The schedule contract allows it, and the generator does not reject it.
+- Tiny principal: the rounded instalment can repay the balance before the last row (0.03 over 5 rows at 0%: instalment 0.006 becomes 0.01, so the balance would be −0.01 after row 4). Under 1.00 at 6% it happens too. Planned (M1-14): a `ValidationError` on `principal`.
+- An amount so large that the instalment, a balance or an interest overflows a `decimal` returns a `ValidationError` on `principal`; one too large to keep cents is rejected by the schedule's exact row check.
 - Floating rate: the schedule is generated at origination against the rate active then, and re-generated on reset dates (M2+, once reset tracking lands).
 - `EffectiveRate`: blocked on [open question #10](../open-questions.md). Its periodic rate `(1 + R)^(1/periodsPerYear) − 1` needs a fractional power.
 

@@ -1,11 +1,8 @@
-using Credere.Core.DayCounts;
 using Credere.Core.Rates;
-using Credere.Core.Results;
 using Credere.Core.Schedules;
 using Credere.Core.ValueObjects;
-using NodaTime;
-using NodaTime.Text;
 using Xunit;
+using static Credere.Core.Tests.Schedules.AnnuityScheduleGeneratorVectorRequests;
 
 namespace Credere.Core.Tests.Schedules;
 
@@ -109,13 +106,7 @@ public sealed class AnnuityScheduleGeneratorVectorTests
         Assert.NotEmpty(AnnuityScheduleGeneratorFailureVectors.All);
         foreach (var failure in AnnuityScheduleGeneratorFailureVectors.All)
         {
-            var request = ScheduleRequest.Create(
-                Eur(failure.Principal),
-                FixedRate.Create(new Percentage(failure.RatePercent), Convention(failure.Convention)).Value,
-                LoanTerm.FromMonths(failure.Months),
-                Date(failure.Disbursement),
-                Date(failure.FirstPayment),
-                failure.Frequency);
+            var request = RequestOf(failure);
 
             Assert.True(request.IsSuccess, failure.Name);
         }
@@ -134,20 +125,6 @@ public sealed class AnnuityScheduleGeneratorVectorTests
     private static AnnuityScheduleGeneratorVector Find(string name) =>
         AnnuityScheduleGeneratorVectors.All.Single(v => string.Equals(v.Name, name, StringComparison.Ordinal));
 
-    private static Money Eur(decimal amount) => Money.Create(amount, "EUR").Value;
-
-    private static LocalDate Date(string iso) => LocalDatePattern.Iso.Parse(iso).Value;
-
-    private static DayCountConvention Convention(string name) => name switch
-    {
-        "ACT/360" => new Act360(),
-        "ACT/365 Fixed" => new Act365Fixed(),
-        "ACT/ACT (ISDA)" => new ActActIsda(),
-        "30/360 ISDA" => new Thirty360Isda(),
-        "30E/360" => new ThirtyE360(),
-        _ => throw new ArgumentOutOfRangeException(nameof(name), name, "Unknown convention in the vector data."),
-    };
-
     private static List<ScheduleRow> RowsOf(AnnuityScheduleGeneratorVector vector) =>
         vector.Rows.Select((row, i) => new ScheduleRow(
             i + 1,
@@ -157,13 +134,4 @@ public sealed class AnnuityScheduleGeneratorVectorTests
             Eur(row.PrincipalDue),
             Eur(row.TotalPayment),
             Eur(row.ClosingBalance))).ToList();
-
-    private static Result<ScheduleRequest, DomainError> RequestOf(AnnuityScheduleGeneratorVector vector) =>
-        ScheduleRequest.Create(
-            Eur(vector.Principal),
-            FixedRate.Create(new Percentage(vector.RatePercent), Convention(vector.Convention)).Value,
-            LoanTerm.FromMonths(vector.Months),
-            Date(vector.Disbursement),
-            Date(vector.FirstPayment),
-            vector.Frequency);
 }
