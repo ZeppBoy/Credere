@@ -346,6 +346,15 @@ internal sealed class LoanApplication
             throw new InvalidOperationException(
                 $"Event {@event.GetType().Name} is not valid for an application in state {State} at terms version {TermsVersion}.");
         }
+
+        // The acceptance is the handoff to Servicing, so its payload must restate the approval it follows.
+        // A stored acceptance of other terms or another product would leave the replayed state contradicting it.
+        if (@event is ApplicationAccepted acceptance
+            && (acceptance.Product != Product || !Equals(acceptance.AcceptedTerms, DecidedTerms)))
+        {
+            throw new InvalidOperationException(
+                $"Event {nameof(ApplicationAccepted)} does not restate the approved product and terms of version {TermsVersion}.");
+        }
     }
 
     private void Apply(LoanApplicationEvent @event)

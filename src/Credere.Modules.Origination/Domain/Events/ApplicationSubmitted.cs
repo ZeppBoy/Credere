@@ -11,6 +11,7 @@ namespace Credere.Modules.Origination.Domain.Events;
 /// <param name="Applicant">The applicant snapshot supplied for underwriting. It contains personal data.</param>
 /// <param name="Product">The product applied for.</param>
 /// <param name="Terms">The terms the applicant requested.</param>
+[EventVersion(1)]
 internal sealed record ApplicationSubmitted(
     LoanApplicationId ApplicationId,
     Instant OccurredAt,

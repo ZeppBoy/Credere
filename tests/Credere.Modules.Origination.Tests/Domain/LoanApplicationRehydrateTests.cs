@@ -170,6 +170,42 @@ public sealed class LoanApplicationRehydrateTests
     }
 
     [Fact]
+    public void Rehydrate_AnAcceptanceOfOtherTermsThanTheApproval_Throws()
+    {
+        var events = InState(LoanApplicationState.AcceptedByBorrower).UncommittedEvents.ToList();
+        var accepted = (ApplicationAccepted)events[2];
+        events[2] = accepted with { AcceptedTerms = FinalTerms(principal: 9_500m) };
+
+        var act = () => LoanApplication.Rehydrate(events);
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Rehydrate_AnAcceptanceOfAnotherProduct_Throws()
+    {
+        var events = InState(LoanApplicationState.AcceptedByBorrower).UncommittedEvents.ToList();
+        var accepted = (ApplicationAccepted)events[2];
+        events[2] = accepted with { Product = ProductCode.Create("TERM-OTHER").Value };
+
+        var act = () => LoanApplication.Rehydrate(events);
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Rehydrate_AnAcceptanceThatRestatesTheApproval_Succeeds()
+    {
+        var events = InState(LoanApplicationState.AcceptedByBorrower).UncommittedEvents.ToList();
+        var accepted = (ApplicationAccepted)events[2];
+        events[2] = accepted with { AcceptedTerms = FinalTerms() };
+
+        var replayed = LoanApplication.Rehydrate(events);
+
+        replayed.State.Should().Be(LoanApplicationState.AcceptedByBorrower);
+    }
+
+    [Fact]
     public void Rehydrate_AnUnknownEventType_Throws()
     {
         var events = new List<LoanApplicationEvent>(Submitted().UncommittedEvents)

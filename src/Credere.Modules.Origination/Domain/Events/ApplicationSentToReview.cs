@@ -9,6 +9,7 @@ namespace Credere.Modules.Origination.Domain.Events;
 /// <param name="CommandId">The idempotency id of the command that produced the event.</param>
 /// <param name="CorrelationId">The id that correlates the event with related work.</param>
 /// <param name="Rationale">The short reason the application needs a human review.</param>
+[EventVersion(1)]
 internal sealed record ApplicationSentToReview(
     LoanApplicationId ApplicationId,
     Instant OccurredAt,

@@ -11,6 +11,7 @@ namespace Credere.Modules.Origination.Domain.Events;
 /// <param name="Product">The product the application is for.</param>
 /// <param name="TermsVersion">The version of the terms the borrower accepted.</param>
 /// <param name="AcceptedTerms">The terms the borrower accepted.</param>
+[EventVersion(1)]
 internal sealed record ApplicationAccepted(
     LoanApplicationId ApplicationId,
     Instant OccurredAt,

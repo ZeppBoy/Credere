@@ -11,6 +11,7 @@ namespace Credere.Modules.Origination.Domain.Events;
 /// <param name="Rationale">The short reason for the decision.</param>
 /// <param name="FinalTerms">The approved terms.</param>
 /// <param name="TermsVersion">The version number of <paramref name="FinalTerms"/>, at least 1.</param>
+[EventVersion(1)]
 internal sealed record ApplicationApproved(
     LoanApplicationId ApplicationId,
     Instant OccurredAt,

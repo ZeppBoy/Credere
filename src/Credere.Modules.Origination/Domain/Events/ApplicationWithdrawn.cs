@@ -9,6 +9,7 @@ namespace Credere.Modules.Origination.Domain.Events;
 /// <param name="CommandId">The idempotency id of the command that produced the event.</param>
 /// <param name="CorrelationId">The id that correlates the event with related work.</param>
 /// <param name="Reason">The reason supplied for the withdrawal.</param>
+[EventVersion(1)]
 internal sealed record ApplicationWithdrawn(
     LoanApplicationId ApplicationId,
     Instant OccurredAt,
