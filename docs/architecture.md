@@ -139,19 +139,43 @@ Collections:
 
 The Documents module stores PDF metadata as a row in `documents.Documents` (SQL) and the blob bytes in `documents.blobs` (Mongo). Queries use SQL; blob retrieval uses Mongo. The transactional guarantee is: the SQL row is only committed if the Mongo write succeeds (two-phase pattern with compensation on failure — detailed in the Documents module doc).
 
-## 6. Integration events — initial catalog
+## 6. Integration events — catalog
 
-Events are `record` types defined in the publisher module's `IntegrationEvents/` folder. Subscribers reference only those records (no cross-module domain-model leakage).
+**Status:** Planned (M2). Reconciled with the module docs in M2-C1 ([ADR-0011](adr/0011-m2-module-contracts.md)); the records are implemented in M2-C2 and later.
 
-| Event | Publisher | Subscribers |
+Events are `record` types defined in the publisher module's `IntegrationEvents/` folder, versioned with `[Version(n)]`. The payloads are in the publisher's module doc: [Origination](modules/origination.md#integration-events-published), [Servicing](modules/servicing.md#integration-events-published), [Documents](modules/documents.md), [Ai](modules/ai.md).
+
+| Event | Publisher | Intended subscribers |
 |---|---|---|
-| `ApplicationSubmitted` | Origination | Ai (credit decisioning), Reporting |
-| `ApplicationDecided` | Origination | Servicing (await disbursement), Reporting |
-| `LoanDisbursed` | Servicing | Documents (generate agreement PDF), Reporting |
-| `PaymentRecorded` | Servicing | Reporting, Ai (early-warning signal source) |
+| `ApplicationSubmitted` | Origination | Ai (credit decisioning, optional), Reporting |
+| `ApplicationDecided` | Origination | Reporting |
+| `ApplicationAccepted` | Origination | Servicing (the handoff, see below), Reporting |
+| `ApplicationWithdrawn` | Origination | Reporting |
+| `LoanDisbursed` | Servicing | Documents (agreement PDF), Reporting |
+| `LoanActivated` | Servicing | Reporting |
+| `PaymentRecorded` | Servicing | Documents (receipt PDF), Reporting, Ai (early-warning signal source) |
+| `PaymentExcessRecorded` | Servicing | Reporting |
 | `LoanAged` | Servicing | Reporting, Ai (early-warning, collections) |
+| `LoanPaidOff` | Servicing | Reporting |
+| `LoanWrittenOff` | Servicing | Reporting |
+| `LoanRestructured` | Servicing | Reporting |
+| `LoanRecovered` | Servicing | Reporting |
 | `DocumentGenerated` | Documents | Reporting |
 | `AgentRecommendationProduced` | Ai | Reporting |
+
+`ApplicationDecided` used to list Servicing as a subscriber ("await disbursement"). It no longer does: a decision is not a handoff, because the borrower has not accepted the terms yet. Servicing starts from `ApplicationAccepted`.
+
+Domain events (`PaymentReceived`, `InterestAccrued`, `LoanBecamePastDue` and the rest of the lifecycle events that are not integration events) are `internal` to their module and are not in this catalog.
+
+### Crossing a module boundary
+
+A module project references only `Credere.Core` and `Credere.Shared` (§3), so a subscriber cannot reference the publisher's event record. The host closes the gap (owner decision D4 of the M2 plan, [ADR-0011](adr/0011-m2-module-contracts.md)):
+
+1. The subscriber module defines its own public input, a command on its facade, with an opaque source id and the data it needs.
+2. A host-owned `IIntegrationEventHandler<TEvent>` references both modules, maps the publisher's event to the subscriber's input and calls the subscriber's facade. It uses the event's `EventId` as the command's `CommandId`, so a duplicate delivery is a receipt hit.
+3. The mapping is transport translation, not business logic. It is tested against the real outbox payload.
+
+The first use is the Servicing handoff: [`ApplicationAccepted`](modules/origination.md#integration-events-published) becomes [`RegisterDisbursementIntent`](modules/servicing.md#handoff-from-origination). In M2 the handler lives in the end-to-end test; the production dispatcher is [M4](roadmap.md#m4--reporting-module--batch--outbox).
 
 ## 7. Outbox and dispatch
 
@@ -165,18 +189,23 @@ See [`adr/0005-transactional-outbox.md`](adr/0005-transactional-outbox.md).
 
 ## 8. Module public contracts
 
-Each module exposes one facade interface. This excerpt shows three methods from the [Origination facade](modules/origination.md#public-interface).
+Each module exposes one facade interface. This excerpt shows three methods from the [Origination facade](modules/origination.md#facade); the full facades are in the module docs.
 
 ```csharp
 public interface IOriginationModule
 {
-    Task<Result<LoanApplicationId, DomainError>> SubmitAsync(SubmitApplication cmd, CancellationToken ct);
-    Task<Result<DecisionView, DomainError>> DecideAsync(DecideApplication cmd, CancellationToken ct);
-    Task<ApplicationView?> GetAsync(LoanApplicationId id, CancellationToken ct);
+    Task<Result<LoanApplicationId, DomainError>> SubmitAsync(
+        SubmitApplication command, CancellationToken cancellationToken);
+    Task<Result<DecisionView, DomainError>> DecideAsync(
+        DecideApplication command, CancellationToken cancellationToken);
+    Task<ApplicationView?> GetAsync(LoanApplicationId id, CancellationToken cancellationToken);
 }
 ```
 
 - Public contracts include the facade, its command and query DTOs, views, strongly typed IDs, and integration events. See [ADR-0008](adr/0008-module-public-contracts.md).
+- A command implements `Credere.Shared.Commands.ICommand` and carries a `CommandId`. An integration event implements `IIntegrationEvent`, carries `[Version(n)]`, and starts with its `EventId`. Both carry a `CorrelationId`.
+- Facade methods are named `<Verb>Async`, take a `CancellationToken cancellationToken` last, and return `Result<T, DomainError>` for an operation that can fail for a business reason. A query for one aggregate returns a nullable view, and a missing aggregate in a `Result` method is `NotFound`.
+- Every date a command depends on is an explicit `LocalDate` field. No handler or aggregate reads the clock for a business date; timestamps come from `IClock` in the handler.
 - Facade operations return `Result<T, DomainError>` for expected business failures. `DomainError` and common errors live in `Credere.Core`. Module-specific errors extend `DomainError` in the owning module and are public when exposed through its facade. See [ADR-0009](adr/0009-result-and-domainerror-in-core.md).
 - Aggregates, repositories, `DbContext`, domain events, and feature handlers are `internal`.
 
