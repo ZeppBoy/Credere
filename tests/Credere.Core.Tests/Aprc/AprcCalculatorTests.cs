@@ -108,6 +108,19 @@ public sealed class AprcCalculatorTests
     }
 
     [Fact]
+    public void Calculate_WholeAndFractionalYearPaymentsBelowMidpoint_RoundsDisclosureDown()
+    {
+        // Annex III, Part I, remark (d). At 12.935%, the one-year payment covers 1,000
+        // of the drawdown and the 18-month payment is just below the amount needed to cover the rest.
+        var request = new AprcRequest([Flow(1_000_001_000m)], [Flow(1_129.35m, 12), Flow(1_200_170_186.68m, 18)]);
+
+        var result = _calculator.Calculate(request);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(12.93m, result.Value.Disclosed.Value);
+    }
+
+    [Fact]
     public void Calculate_RepaymentEqualsDrawdown_ReturnsZeroRate()
     {
         var result = _calculator.Calculate(new AprcRequest([Flow(1_000m)], [Flow(1_000m, 12)]));
@@ -131,49 +144,55 @@ public sealed class AprcCalculatorTests
     }
 
     [Fact]
+    public void Calculate_NullRequest_ThrowsArgumentNullException() =>
+        Assert.Throws<ArgumentNullException>("request", () => _calculator.Calculate(null!));
+
+    [Fact]
     public void Calculate_NoDrawdown_ReturnsValidationError() =>
-        AssertValidationError(new AprcRequest([], [Flow(1_200m, 18)]));
+        AssertValidationError(new AprcRequest([], [Flow(1_200m, 18)]), "drawdowns", "exactly one drawdown is required");
 
     [Fact]
     public void Calculate_MultipleDrawdowns_ReturnsValidationError() =>
-        AssertValidationError(new AprcRequest([Flow(950m), Flow(50m, 3)], [Flow(1_200m, 18)]));
+        AssertValidationError(new AprcRequest([Flow(950m), Flow(50m, 3)], [Flow(1_200m, 18)]), "drawdowns", "exactly one drawdown is required");
 
     [Fact]
     public void Calculate_NonPositiveDrawdown_ReturnsValidationError() =>
-        AssertValidationError(new AprcRequest([Flow(0m)], [Flow(1_200m, 18)]));
+        AssertValidationError(new AprcRequest([Flow(0m)], [Flow(1_200m, 18)]), "drawdowns", "the drawdown amount must be positive");
 
     [Fact]
     public void Calculate_NoBorrowerPayments_ReturnsValidationError() =>
-        AssertValidationError(new AprcRequest([Flow(1_000m)], []));
+        AssertValidationError(new AprcRequest([Flow(1_000m)], []), "borrowerPayments", "at least one borrower payment is required");
 
     [Fact]
     public void Calculate_MixedCurrencies_ReturnsValidationError() =>
-        AssertValidationError(new AprcRequest([Flow(1_000m)], [Flow(1_200m, 18, "GBP")]));
+        AssertValidationError(new AprcRequest([Flow(1_000m)], [Flow(1_200m, 18, "GBP")]), "borrowerPayments", "all payments must use the drawdown currency");
 
     [Fact]
     public void Calculate_PaymentBeforeDrawdown_ReturnsValidationError() =>
-        AssertValidationError(new AprcRequest([Flow(1_000m)], [Flow(1_200m, -18)]));
+        AssertValidationError(new AprcRequest([Flow(1_000m)], [Flow(1_200m, -18)]), "borrowerPayments", "a payment precedes the drawdown");
 
     [Fact]
     public void Calculate_NegativePayment_ReturnsValidationError() =>
-        AssertValidationError(new AprcRequest([Flow(1_000m)], [Flow(-50m), Flow(1_200m, 18)]));
+        AssertValidationError(new AprcRequest([Flow(1_000m)], [Flow(-50m), Flow(1_200m, 18)]), "borrowerPayments", "each payment must have a non-negative amount");
 
     [Fact]
     public void Calculate_PaymentsTotalLessThanDrawdown_ReturnsValidationError() =>
-        AssertValidationError(new AprcRequest([Flow(1_000m)], [Flow(950m, 12)]));
+        AssertValidationError(new AprcRequest([Flow(1_000m)], [Flow(950m, 12)]), "payments", "total payments must cover the drawdown");
 
     [Fact]
     public void Calculate_RootAboveMaximum_ReturnsValidationError() =>
-        AssertValidationError(new AprcRequest([Flow(1_000m)], [Flow(102_000m, 12)]));
+        AssertValidationError(new AprcRequest([Flow(1_000m)], [Flow(102_000m, 12)]), "payments", "no non-negative APRC was found at or below 10,000%");
 
     private static CashFlow Flow(decimal amount, int months = 0, string currency = "EUR") =>
         new(Money.Create(amount, currency).Value, DrawdownDate.PlusMonths(months));
 
-    private void AssertValidationError(AprcRequest request)
+    private void AssertValidationError(AprcRequest request, string field, string reason)
     {
         var result = _calculator.Calculate(request);
 
         Assert.False(result.IsSuccess);
-        Assert.IsType<ValidationError>(result.Error);
+        var error = Assert.IsType<ValidationError>(result.Error);
+        Assert.Equal(field, error.Field);
+        Assert.Equal(reason, error.Reason);
     }
 }
