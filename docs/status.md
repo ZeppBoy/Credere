@@ -1,6 +1,6 @@
 # Status
 
-**Last reviewed:** 2026-11-17 (initial scaffolding)
+**Last reviewed:** 2026-11-25 (M1 close-out)
 
 Statuses:
 - **Planned** — in the roadmap, not implemented.
@@ -14,12 +14,17 @@ Statuses:
 |---|---|
 | `Credere.Core` project skeleton | Implemented |
 | `Credere.Shared` project skeleton | Implemented |
-| Value objects (Money, Percentage, LoanTerm) | Planned |
-| Interest rates (Fixed, Floating, Tiered, Effective) | Planned |
-| Day-count conventions | Planned |
-| Schedule generators (annuity, differentiated, bullet) | Planned |
-| APRC calculator | Planned |
-| `Result<T, E>` + outbox contracts + idempotency | Planned |
+| `Result<T, E>`, `Unit`, `DomainError` hierarchy ([ADR-0009](adr/0009-result-and-domainerror-in-core.md)) | Verified |
+| Value objects (Money, Percentage, LoanTerm) | Verified |
+| Day-count conventions (Act/360, Act/365 Fixed, Act/Act ISDA, 30/360 ISDA, 30E/360) | Verified |
+| `IInterestCalculator`, `FixedRate`, `FloatingRate`, `TieredRate` | Verified |
+| `EffectiveRate` | Planned (deferred out of M1, [open question #10](open-questions.md)) |
+| Schedule generators (annuity, differentiated, bullet) | Verified |
+| APRC calculator (`EuCcdAnnexIII`, solver, `AprcCalculator`) | Verified |
+| Integration-event and command abstractions in `Credere.Shared` | Verified |
+| Outbox and receipt rows, idempotency receipts | Planned (M2, module infrastructure) |
+| Coverage (`coverlet.collector`) and mutation (Stryker.NET) tooling | Implemented |
+| `Credere.Core` quality gates, measured on `ee1c88e` (2026-11-25) | Core line coverage 98.85% (target ≥90%), Shared line coverage 100% (≥90%), Core mutation score 86.91% (≥80%). The APRC files score 77.91% against the plan's 85% target, so that target is not met (#62). |
 
 ## M2 — Origination + Servicing modules
 
