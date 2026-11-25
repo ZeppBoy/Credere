@@ -4,6 +4,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="coverlet.collector" PrivateAssets="all" />
+    <PackageReference Include="FsCheck.Xunit" />
     <PackageReference Include="Testcontainers.MsSql" />
   </ItemGroup>
 </Project>
