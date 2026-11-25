@@ -8,7 +8,8 @@ Each milestone in the [roadmap](../roadmap.md) gets a plan here before work star
 |---|---|---|
 | M1 — Core math + shared primitives | [`m1.md`](m1.md) | Approved |
 | M2 — Origination + Servicing | [`m2.md`](m2.md) | Approved |
-| M3–M7 | [Outline below](#later-milestones-outline) | Outline |
+| M3 — Documents + Banker UI | [`m3.md`](m3.md) | Proposed |
+| M4–M7 | [Outline below](#later-milestones-outline) | Outline |
 
 ## The shape of every milestone plan
 
@@ -23,13 +24,6 @@ Each task row gives: id, goal, dependencies, gating decision, owned paths, relat
 ## Later milestones (outline)
 
 This outline shows where each milestone can run in parallel and what has to be settled first. It is not a task list. Contract gaps already visible in the docs are listed, so the contract task can fix them before fan-out.
-
-### M3 — Documents and the banker UI
-
-- **Decisions:** open questions #3 (identity provider), #5 (document storage) and #6 (TypeScript client generation). `modules/documents.md` still cites Directive 2008/48/EC Article 10 and checks the APRC "to four decimals". Both need updating to 2023/2225 and to the two-place disclosure in `domain/aprc.md`.
-- **Contract task:** API endpoints and the OpenAPI document.
-- **Fan-out:** Documents module (QuestPDF, Mongo blobs) ∥ API endpoints ∥ web UI, built against the OpenAPI contract.
-- **Serial at the end:** the Playwright end-to-end test.
 
 ### M4 — Reporting, Batch and Outbox
 
