@@ -33,9 +33,6 @@ public sealed class AnnuityScheduleGenerator : IScheduleGenerator
 {
     private const int CentsPerUnit = 100;
     private const int PercentDivisor = 100;
-    private const int CentDecimalPlaces = 2;
-
-    private static readonly BigInteger MaxCoefficient = new(decimal.MaxValue);
 
     private readonly IInterestCalculator interestCalculator;
 
@@ -132,36 +129,6 @@ public sealed class AnnuityScheduleGenerator : IScheduleGenerator
             cents += BigInteger.One;
         }
 
-        return Money.Create(ToDecimal(cents, numerator.Sign < 0), currency).Value;
-    }
-
-    // Converts a count of cents to the decimal that holds it exactly, with the fewest decimal places (0, 1 or 2), so that a
-    // whole-unit amount such as decimal.MaxValue still fits the 96-bit coefficient. Dividing the cast cents by 100 would
-    // overflow there. This is the conversion of ExactInterest.ToDecimal in Rates, which is internal to that type; throws
-    // OverflowException when the coefficient does not fit.
-    private static decimal ToDecimal(BigInteger cents, bool negative)
-    {
-        const int bitsPerWord = 32;
-        const uint wordMask = uint.MaxValue;
-
-        var scale = CentDecimalPlaces;
-        var coefficient = cents;
-        while (scale > 0 && (coefficient % 10).IsZero)
-        {
-            coefficient /= 10;
-            scale--;
-        }
-
-        if (coefficient > MaxCoefficient)
-        {
-            throw new OverflowException("The amount cannot be represented exactly as a decimal.");
-        }
-
-        return new decimal(
-            (int)(uint)(coefficient & wordMask),
-            (int)(uint)((coefficient >> bitsPerWord) & wordMask),
-            (int)(uint)((coefficient >> (2 * bitsPerWord)) & wordMask),
-            negative && !coefficient.IsZero,
-            (byte)scale);
+        return Money.Create(CentsToDecimal.ToDecimal(cents, numerator.Sign < 0), currency).Value;
     }
 }
