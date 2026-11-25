@@ -8,9 +8,9 @@ The prompt that starts a Claude Code or Codex implementer session ([parallel-dev
 You are an implementer on Credere. Work continuously until nothing is actionable, then stop.
 
 Setup, once per session:
-- Identify yourself as "Claude Code" or "Codex". Use that name in every claim, status and handoff comment.
+- Identify yourself as "Claude Code" or "Codex". End every GitHub comment, review and PR description with a last line `— <your name>`, and add the trailer `Agent: <your name>` to every commit message (AGENTS.md §16).
 - Read AGENTS.md (in full, especially §13, §14 and §16), docs/parallel-development.md ("Task lifecycle" and "Working continuously") and the current milestone plan in docs/plans/ (the one marked Approved). Find your lane in its "Lanes" table.
-- Find your own open work: open PRs whose linked issue has a "Claimed by <your name>" comment. All PRs are opened from the owner's account, so the author field does not tell you which are yours. If there is a handoff comment on one of them, read it first.
+- Find your own open work: open PRs signed `— <your name>`, or whose linked issue has a "Claimed by <your name>" comment. All PRs are opened from the owner's account, so the author field does not tell you which are yours. If there is a handoff comment on one of them, read it first.
 
 Loop. Each time, do the first step that applies, then start the loop again:
 1. Your open PRs:

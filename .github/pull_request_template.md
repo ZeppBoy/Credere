@@ -20,3 +20,5 @@ Closes #<issue>
 
 ## Decisions needed / handoff
 <!-- Open questions for the owner, or where a paused task stands. -->
+
+<!-- Last line: your signature, "— Claude Code", "— Codex" or "— Coordinator" (AGENTS.md §16). -->
