@@ -165,20 +165,20 @@ See [`adr/0005-transactional-outbox.md`](adr/0005-transactional-outbox.md).
 
 ## 8. Module public contracts
 
-Each module exposes exactly one interface:
+Each module exposes one facade interface. This excerpt shows three methods from the [Origination facade](modules/origination.md#public-interface).
 
 ```csharp
 public interface IOriginationModule
 {
-    Task<Result<ApplicationId, Error>> SubmitAsync(SubmitApplication cmd, CancellationToken ct);
-    Task<Result<DecisionView, Error>> DecideAsync(DecideApplication cmd, CancellationToken ct);
-    Task<ApplicationView?> GetAsync(ApplicationId id, CancellationToken ct);
+    Task<Result<LoanApplicationId, DomainError>> SubmitAsync(SubmitApplication cmd, CancellationToken ct);
+    Task<Result<DecisionView, DomainError>> DecideAsync(DecideApplication cmd, CancellationToken ct);
+    Task<ApplicationView?> GetAsync(LoanApplicationId id, CancellationToken ct);
 }
 ```
 
-- The interface is the only type exposed outside the module.
-- DTOs used by the interface (`SubmitApplication`, `DecisionView`, `ApplicationView`, `Error`, strongly-typed id) are also public.
-- Everything else inside the module (aggregates, repositories, DbContext, domain events, feature handlers) is `internal`.
+- Public contracts include the facade, its command and query DTOs, views, strongly typed IDs, and integration events. See [ADR-0008](adr/0008-module-public-contracts.md).
+- Facade operations return `Result<T, DomainError>` for expected business failures. `DomainError` and common errors live in `Credere.Core`. Module-specific errors extend `DomainError` in the owning module and are public when exposed through its facade. See [ADR-0009](adr/0009-result-and-domainerror-in-core.md).
+- Aggregates, repositories, `DbContext`, domain events, and feature handlers are `internal`.
 
 Hosts wire modules via extension methods:
 
