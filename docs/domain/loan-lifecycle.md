@@ -77,7 +77,7 @@ Every row below is implemented and tested.
 | Defaulted | Restructure | plan non-empty | Restructured | `LoanRestructured` | `LoanRestructured` |
 | Defaulted | Recover | method non-empty | Recovered | `LoanRecovered` | `LoanRecovered` |
 
-Any other `(state, command)` pair returns `Result<Unit, DomainError>.Failure(new InvalidStateTransition(state, command, reason))`. **No exceptions.**
+Any other `(state, command)` pair returns `Result<Unit, DomainError>.Failure(new InvalidStateTransition(state.ToString(), command, reason))`. The error takes the state's name as a string. See [ADR-0009](../adr/0009-result-and-domainerror-in-core.md).
 
 ## Thresholds
 
