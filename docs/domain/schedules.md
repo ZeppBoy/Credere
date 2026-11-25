@@ -142,14 +142,17 @@ closingBalanceᵢ = openingBalanceᵢ − principalDueᵢ
 
 ## 3. Bullet
 
-`BulletScheduleGenerator`. Principal is paid in a single final row; interest is paid periodically or capitalised.
+**Status:** Implemented (M1-16). The reference sets for both modes were independently recomputed and approved in PR #53.
 
-Two modes:
+`BulletScheduleGenerator` selects its mode through the `capitaliseInterest` constructor parameter. Both modes accrue each period's interest on its opening balance using `IInterestCalculator`.
 
-- **Interest-only until bullet.** Each row: `interestDue = IInterestCalculator.Calculate(...)` on the opening balance, `principalDue = 0`, `totalPayment = interestDue`. Final row: `principalDue = P` and `totalPayment = interestDue + P`.
-- **Zero-coupon (capitalised interest).** In every row except the last, `IInterestCalculator.Calculate(...)` is computed on the opening balance and added to it, so the balance compounds. Those rows show `InterestDue = 0`, `PrincipalDue = 0` and `TotalPayment = 0`. The final row pays the whole accumulated balance.
+- **Interest-only until bullet (`false`).** Before maturity, each payment equals the period's interest. Principal due and capitalised interest are zero, so the balance stays at the original principal.
+- **Zero-coupon (`true`).** Before maturity, each row adds the rounded period accrual to the opening balance as `CapitalisedInterest`. Interest due, principal due and total payment are zero. Each period starts with the previous row's closing balance.
+- **Maturity in both modes.** The final principal due equals the opening balance. The final period interest is paid in cash alongside that principal. Capitalised interest and the closing balance are zero. In zero-coupon mode, total principal due therefore includes all interest capitalised before maturity.
 
-**Use case:** bridge loans; some corporate structures.
+Negative original principal or amounts that cannot be represented exactly as money return a `ValidationError` on `principal`.
+
+**Use case:** bridge loans and some corporate structures.
 
 ## Rounding and residuals
 
