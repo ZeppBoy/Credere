@@ -129,6 +129,8 @@ If the provider behind `IChatClient` drops or can't express any of these, the lo
 
 **Owner.** Human, before the first `DbContext` (M2).
 
+**Decision for M2 (2026-11-25).** Option (a), owner decision D1 of the [M2 plan](plans/m2.md). Each module keeps its converters, outbox rows and receipt rows in its own `Infrastructure/`. This keeps the project boundaries as they are and lets each schema migrate on its own. The question stays open: if the duplication starts to hurt, option (b) needs its own ADR and an architecture-test change.
+
 **Recommendation.** (a) until a second module needs the converters, then (b).
 
 ---
