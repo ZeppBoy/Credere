@@ -58,8 +58,9 @@ internal static class PaymentAllocationWaterfall
     {
         var remainder = balance - allocated;
 
-        // Decimal can drop fractional digits near its precision limit. The fractional
-        // parts are small enough to verify exactly, including when borrowing a whole unit.
+        // Decimal can drop cents near its precision limit. For example, subtracting one cent
+        // from decimal.MaxValue yields a remainder that must end in .99. Compare the fractional
+        // parts directly because adding the cent back can also lose precision.
         var expectedFraction = (balance.Amount % 1m - allocated.Amount % 1m + 1m) % 1m;
         if (remainder.Amount % 1m != expectedFraction)
         {

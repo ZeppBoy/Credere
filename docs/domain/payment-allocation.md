@@ -2,7 +2,7 @@
 
 **Credere allocates every payment from day one.** This is not a stub, not deferred, not a "future phase." The absence of payment allocation was the single largest gap in Promissio; Credere closes it by making allocation part of the first slice that touches payments.
 
-Allocation lives in `src/Credere.Modules.Servicing/Domain/PaymentAllocationWaterfall.cs`. The Loan aggregate's `RecordPayment` command delegates to it; the aggregate itself does not contain allocation logic.
+**Implemented (M2-02).** The waterfall lives in `src/Credere.Modules.Servicing/Domain/PaymentAllocationWaterfall.cs`.
 
 ## Source for the allocation rule
 
@@ -19,7 +19,7 @@ For an incoming payment of amount `P` in currency `C`, the waterfall allocates i
 3. **Current period interest** — interest accrued in the current period (since the last scheduled payment date, up to the effective date of this payment). Reduce `CurrentInterest`.
 4. **Principal** — the remainder reduces `RemainingPrincipal`.
 
-Any residual after all four balances reach zero is `Excess`. The aggregate records it for return in `PaymentRecorded` and emits the domain and integration events `PaymentExcessRecorded`. The loan keeps a zero balance. Treasury handles the return outside M2. See [overpayments in the loan lifecycle](loan-lifecycle.md#payments-and-accrual).
+Any residual after all four balances reach zero is `Excess`. The [planned loan behavior](loan-lifecycle.md#payments-and-accrual) records it for return in `PaymentRecorded`, emits the domain and integration events `PaymentExcessRecorded`, and leaves the loan with a zero balance. Treasury handles the return outside M2.
 
 ## Public contract
 
@@ -89,6 +89,8 @@ The waterfall is responsible for these invariants:
 
 ## Business rules on top of the waterfall
 
+**Planned (M2-04).** These rules belong to the Loan aggregate's `RecordPayment` command.
+
 - `RecordPayment` is available in `Active`, `InGrace` and `PastDue`. Other states return `InvalidStateTransition`.
 - A payment must be positive, match the loan's currency and have an effective date on or after `AccruedThroughDate`.
 - The aggregate accrues interest to the effective date before allocating the payment.
@@ -122,4 +124,4 @@ These cases apply the [formal rules](#formal-rules). PA-01 through PA-09 share t
 
 ## Why this lives in the module, not the aggregate
 
-The Loan aggregate's responsibility is state and events. Allocation is a pure function of inputs — perfect to isolate for testing, mutation testing, and readability. The aggregate calls the waterfall, applies the result to its state fields, and emits events. A corrupt waterfall is a single file to fix; the aggregate code reads like English.
+The waterfall computes the allocation and remaining balances from its inputs. In M2-04, the Loan aggregate will call it, apply the new balances, and emit the corresponding events.
