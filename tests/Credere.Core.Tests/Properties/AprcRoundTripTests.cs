@@ -61,9 +61,10 @@ public sealed class AprcRoundTripTests
     {
         // M1-20 counterexample to a universal one-basis-point tolerance on the ideal rate.
         // EUR 1000 at 99.99% for one equal month accrues EUR 83.325, rounded half-even to EUR 83.32.
+        const decimal nominalRatePercent = 99.99m;
         var principal = Euro(1_000m);
         var disbursement = new LocalDate(2026, 1, 15);
-        var generated = GenerateAnnuity(principal, 99.99m, 1, disbursement);
+        var generated = GenerateAnnuity(principal, nominalRatePercent, 1, disbursement);
         Assert.True(generated.IsSuccess, generated.IsSuccess ? string.Empty : generated.Error.ToString());
         var payments = AnnuityPayments(generated.Value, 1, disbursement);
         Assert.Equal(Euro(1_083.32m), Assert.Single(payments).Amount);
@@ -72,6 +73,8 @@ public sealed class AprcRoundTripTests
         var expected = Annualise(1_083.32m / 1_000m);
 
         Assert.InRange(actual, expected - SolverTolerance, expected + SolverTolerance);
+        var idealAnnualRate = Annualise(1m + nominalRatePercent / 100m / MonthsPerYear);
+        Assert.True(idealAnnualRate - actual > 0.0001m);
     }
 
     private static Result<AmortizationSchedule, DomainError> GenerateAnnuity(
