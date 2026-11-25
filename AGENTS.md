@@ -231,3 +231,4 @@ Several agents, from different vendors, can work on Credere at once. When you wo
 - Shared state lives in the task's GitHub issue and pull request. `docs/working-notes/` is local to one worktree, so a handoff written there is lost to the next session.
 - A reference-vector set or a PR is checked by an agent from a different vendor than the one that wrote it, so errors in the two are less likely to coincide.
 - The git hooks in `.githooks/` are the shared gate for every tool. Never bypass them with `--no-verify`; if a hook blocks you, report why.
+- Sign your work, because every PR and comment is posted from the owner's account and the author field can't tell agents apart. End every GitHub comment, review and PR description with a last line of its own: `— Claude Code`, `— Codex` or `— Coordinator`. Add a trailer to every commit message: `Agent: Claude Code`, `Agent: Codex` or `Agent: Coordinator`. The owner signs `— Owner`.
