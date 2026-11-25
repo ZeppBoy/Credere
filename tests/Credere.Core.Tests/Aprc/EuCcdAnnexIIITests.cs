@@ -78,6 +78,10 @@ public sealed class EuCcdAnnexIIITests : DayCountConventionPropertiesBase
     }
 
     [Fact]
+    public void Name_AnnexIIIConvention_IdentifiesItsTimeBasis() =>
+        Assert.Equal("EU CCD Annex III", Convention.Name);
+
+    [Fact]
     public void Fraction_LookBackPrecedesCalendarRange_MatchesNextGregorianCycle()
     {
         var start = new LocalDate(CalendarSystem.Iso.MinYear, 1, 1);

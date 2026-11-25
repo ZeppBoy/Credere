@@ -65,6 +65,16 @@ public sealed class AprcSolverTests
     }
 
     [Fact]
+    public void Solve_RootAtInitialUpperBound_ReturnsExactSolution()
+    {
+        // Annex III: a one-year payment of twice the drawdown gives X = 1 exactly.
+        var result = AprcSolver.Solve(1_000m, [(2_000m, 1m)]);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(new AprcSolver.Solution(1m, 0, 0m, 100m), result.Value);
+    }
+
+    [Fact]
     public void Solve_RootAtMaximumRate_ReturnsMaximum()
     {
         // Annex III: a one-year payment of 101 times the drawdown gives X = 100.
@@ -82,6 +92,22 @@ public sealed class AprcSolverTests
 
         Assert.True(result.IsSuccess);
         Assert.InRange(result.Value.Rate, 0.9999999999m, 1m);
+    }
+
+    [Fact]
+    public void Solve_ScaledAmounts_ReportsBisectionResidualInCurrencyUnits()
+    {
+        // Scale the Annex III equation with an upfront charge large enough to exercise the
+        // decimal range guard. At the returned rate, the later payment is discounted once.
+        const decimal drawdown = 50_000_000_000_000_000_000_000_000_000m;
+        const decimal remainingDrawdown = 1_000_000_000_000_000m;
+        const decimal laterPayment = 1_501_000_000_000_000m;
+        var result = AprcSolver.Solve(drawdown, [(drawdown - remainingDrawdown, 0m), (laterPayment, 1m)]);
+
+        Assert.True(result.IsSuccess);
+        var expectedResidual = remainingDrawdown - laterPayment / (1m + result.Value.Rate);
+        // The fractional-power step uses double, so allow up to 2 currency units of conversion error.
+        Assert.InRange(result.Value.FinalResidual, expectedResidual - 2m, expectedResidual + 2m);
     }
 
     [Theory]
