@@ -167,7 +167,9 @@ How the tests compare:
   - payments on the disbursement's day of the month, with that day ≤ 28;
   - principal ≥ 1,000.
 
-  Then `|Rate − ((1 + r/12)^12 − 1)| ≤ 1e-4`. Every period is exactly one month, so the equation discounts by `(1 + X)^(1/12)` a month while the schedule charges `r/12` a month. Only the cent rounding of payments separates them. In a 3,000-case sample the worst deviation was 8.2e-5, at 1,000 over 12 months. A failing FsCheck seed becomes a pinned regression case (AGENTS.md §8).
+  With unrounded cash flows, the annual rate is `(1 + r/12)^12 − 1`. Cent rounding changes the result. For example, a EUR 1,000.00 loan at 99.99% for one month pays EUR 1,083.32 after rounding ties to even. Its cash-flow APRC differs from the unrounded rate by about 1.447 basis points.
+
+  For each successful annuity schedule, the property uses the rounded payments and independently solves the Annex III equation in monthly units, using decimal division to discount one month at a time. It raises the resulting monthly factor to the twelfth power and checks that `Rate` matches within `1e-9` in fractional-rate units. A failing FsCheck seed becomes a pinned regression case (AGENTS.md §8).
 - **Monotonic in fees.** Adding an upfront charge strictly increases the APRC.
 - **Monotonic in rate.** Increasing the nominal rate strictly increases the APRC.
 - **Zero-cost degeneracy.** With one drawdown and payments that total exactly the drawdown, the APRC is zero.
