@@ -7,7 +7,8 @@ Each milestone in the [roadmap](../roadmap.md) gets a plan here before work star
 | Milestone | Plan | Status |
 |---|---|---|
 | M1 — Core math + shared primitives | [`m1.md`](m1.md) | Approved |
-| M2–M7 | [Outline below](#later-milestones-outline); a full plan is written when the previous milestone closes | Outline |
+| M2 — Origination + Servicing | [`m2.md`](m2.md) | Proposed |
+| M3–M7 | [Outline below](#later-milestones-outline) | Outline |
 
 ## The shape of every milestone plan
 
@@ -21,22 +22,6 @@ Each task row gives: id, goal, dependencies, gating decision, owned paths, relat
 ## Later milestones (outline)
 
 This outline shows where each milestone can run in parallel and what has to be settled first. It is not a task list. Contract gaps already visible in the docs are listed, so the contract task can fix them before fan-out.
-
-### M2 — Origination and Servicing
-
-- **Decisions:** [open question #8](../open-questions.md) (where persistence converters live). The source for the payment-allocation reference cases: `domain/payment-allocation.md` cites an "ECB Statistical Classification … Annex II" that couldn't be found when the M1 docs were checked.
-- **Contract tasks:**
-  - Module facades, command/query DTOs, ids and integration events.
-  - Reconcile the event catalog in `architecture.md` §6 with the module docs. `ApplicationAccepted`, `ApplicationWithdrawn`, `LoanActivated`, `LoanPaidOff`, `LoanWrittenOff`, `LoanRestructured` and `LoanRecovered` appear in the module docs but not in the catalog.
-  - Rename `ct` to `cancellationToken` in the module interface sketches (AGENTS.md §5).
-  - Persistence foundation per open question #8.
-- **Fan-out:**
-  - Origination aggregate and slices (one implementer).
-  - Servicing `Loan` aggregate and state machine (one implementer).
-  - `PaymentAllocationWaterfall` and interest accrual as pure domain code (one implementer).
-  - Then per-module persistence.
-  - Both Servicing implementers work in one module, so ownership is by file: `Domain/Loan*.cs` for one, `Domain/PaymentAllocationWaterfall.cs` and accrual for the other. The `RecordPayment` slice comes after both.
-- **Serial at the end:** the end-to-end integration test (Docker, one suite at a time).
 
 ### M3 — Documents and the banker UI
 
