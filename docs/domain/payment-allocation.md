@@ -96,7 +96,7 @@ The waterfall is responsible for these invariants:
 
 ## Reference examples
 
-These cases apply the [formal rules](#formal-rules) to the starting balances of the original 40-unit example. All amounts are in EUR. Balance and allocation tuples are ordered as fees, past-due interest, current interest, principal. The first four stages are fully covered at cumulative payments of 10, 35, 50 and 1050. The overpayment adds one cent, the smallest unit of [Money](value-objects.md).
+These cases apply the [formal rules](#formal-rules). PA-01 through PA-09 share the starting balances of the original example, PA-05, whose payment was 40.00. For those balances the four stages are fully covered at cumulative payments of 10, 35, 50 and 1050. PA-09 adds one cent, the smallest unit of [Money](value-objects.md). All amounts are in EUR. Balance and allocation tuples are ordered as fees, past-due interest, current interest, principal.
 
 | Case | Payment | Starting balances | Expected allocation | Expected excess | Expected remaining balances |
 |---|---:|---|---|---:|---|
@@ -110,6 +110,8 @@ These cases apply the [formal rules](#formal-rules) to the starting balances of 
 | PA-08 · Exact payoff | 1050.00 | (10.00, 25.00, 15.00, 1000.00) | (10.00, 25.00, 15.00, 1000.00) | 0.00 | (0.00, 0.00, 0.00, 0.00) |
 | PA-09 · One cent of excess | 1050.01 | (10.00, 25.00, 15.00, 1000.00) | (10.00, 25.00, 15.00, 1000.00) | 0.01 | (0.00, 0.00, 0.00, 0.00) |
 | PA-10 · Empty priority buckets, using the balance after PA-06 | 0.01 | (0.00, 0.00, 0.00, 1000.00) | (0.00, 0.00, 0.00, 0.01) | 0.00 | (0.00, 0.00, 0.00, 999.99) |
+| PA-11 · Empty past-due interest between two non-zero balances | 20.00 | (10.00, 0.00, 15.00, 1000.00) | (10.00, 0.00, 10.00, 0.00) | 0.00 | (0.00, 0.00, 5.00, 1000.00) |
+| PA-12 · Uneven cents split between current interest and principal | 0.50 | (0.00, 0.00, 0.37, 100.00) | (0.00, 0.00, 0.37, 0.13) | 0.00 | (0.00, 0.00, 0.00, 99.87) |
 
 ## Property-based invariants (FsCheck.Xunit)
 
