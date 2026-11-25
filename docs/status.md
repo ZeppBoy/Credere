@@ -24,7 +24,7 @@ Statuses:
 | Integration-event and command abstractions in `Credere.Shared` | Verified |
 | Outbox and receipt rows, idempotency receipts | Planned (M2, module infrastructure) |
 | Coverage (`coverlet.collector`) and mutation (Stryker.NET) tooling | Implemented |
-| `Credere.Core` quality gates, measured on `ee1c88e` (2026-11-25) | Core line coverage 98.85% (target ≥90%), Shared line coverage 100% (≥90%), Core mutation score 86.91% (≥80%). The APRC files score 77.91% against the plan's 85% target, so that target is not met (#62). |
+| `Credere.Core` quality gates, measured on `f2afc82` (2026-11-25) | Core line coverage 98.92% (target ≥90%), Shared line coverage 100% (≥90%), Core mutation score 89.47% (≥80%). The APRC files score 87.12% against the plan's 85% target (#62, closed by #79). |
 
 ## M2 — Origination + Servicing modules
 
