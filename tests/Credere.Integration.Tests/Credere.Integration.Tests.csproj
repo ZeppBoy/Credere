@@ -1,8 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="..\..\src\Credere.Api\Credere.Api.csproj" />
+    <ProjectReference Include="..\..\src\Credere.Core\Credere.Core.csproj" />
+    <ProjectReference Include="..\..\src\Credere.Shared\Credere.Shared.csproj" />
+    <ProjectReference Include="..\..\src\Credere.Modules.Origination\Credere.Modules.Origination.csproj" />
+    <ProjectReference Include="..\..\src\Credere.Modules.Servicing\Credere.Modules.Servicing.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="coverlet.collector" PrivateAssets="all" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="Testcontainers" />
     <PackageReference Include="Testcontainers.MsSql" />
