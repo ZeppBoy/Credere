@@ -245,6 +245,7 @@ public sealed class BulletScheduleGeneratorInterestOnlyVectorTests
         var periods = SchedulePeriods.Periods(disbursement, firstPayment, vector.Frequency, rowCount);
         var calculator = new InterestCalculator();
         var rows = new List<ScheduleRow>(rowCount);
+        var zero = Money.Zero(principal.Currency);
         for (var index = 0; index < rowCount; index++)
         {
             var expected = vector.Rows[index];
@@ -255,7 +256,7 @@ public sealed class BulletScheduleGeneratorInterestOnlyVectorTests
             Assert.Equal(principal, opening);
             Assert.Equal(interest, calculator.Calculate(rate, opening, periods[index].Start, periods[index].End));
 
-            rows.Add(new ScheduleRow(index + 1, date, opening, interest,
+            rows.Add(new ScheduleRow(index + 1, date, opening, zero, interest,
                 Euro(expected.Principal), Euro(expected.Total), Euro(expected.Closing)));
         }
 
@@ -263,7 +264,7 @@ public sealed class BulletScheduleGeneratorInterestOnlyVectorTests
         Assert.True(schedule.IsSuccess, schedule.IsSuccess ? string.Empty : schedule.Error.ToString());
         Assert.All(rows.Take(rowCount - 1), row =>
         {
-            Assert.Equal(Money.Zero(principal.Currency), row.PrincipalDue);
+            Assert.Equal(zero, row.PrincipalDue);
             Assert.Equal(row.InterestDue, row.TotalPayment);
         });
         Assert.Equal(principal, rows[^1].PrincipalDue);

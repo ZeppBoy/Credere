@@ -220,7 +220,7 @@ public sealed class BulletScheduleGeneratorZeroCouponVectorTests
 
     [Theory]
     [MemberData(nameof(Names))]
-    public void ReferenceSchedule_matchesTheSharedPeriodsAndInterestAndBalances(string name)
+    public void ReferenceSchedule_matchesTheSharedPeriodsInterestAndRowContracts(string name)
     {
         var vector = Vectors.Single(entry => entry.Name == name);
         DayCountConvention convention = vector.Convention switch
@@ -233,17 +233,18 @@ public sealed class BulletScheduleGeneratorZeroCouponVectorTests
             _ => throw new ArgumentOutOfRangeException(nameof(name), vector.Convention, "Unknown reference convention."),
         };
         var rate = FixedRate.Create(new Percentage(vector.RatePercent), convention).Value;
-        var openingBalance = Euro(vector.Principal);
+        var loanPrincipal = Euro(vector.Principal);
         var disbursement = Date(vector.Disbursement);
         var firstPayment = Date(vector.FirstPayment);
         var term = LoanTerm.FromMonths(vector.Months);
-        Assert.True(ScheduleRequest.Create(openingBalance, rate, term, disbursement, firstPayment, vector.Frequency).IsSuccess);
+        Assert.True(ScheduleRequest.Create(loanPrincipal, rate, term, disbursement, firstPayment, vector.Frequency).IsSuccess);
 
         var rowCount = SchedulePeriods.RowCount(term, vector.Frequency);
         Assert.Equal(rowCount, vector.Rows.Length);
         var periods = SchedulePeriods.Periods(disbursement, firstPayment, vector.Frequency, rowCount);
         var calculator = new InterestCalculator();
-        var zero = Money.Zero(openingBalance.Currency);
+        var zero = Money.Zero(loanPrincipal.Currency);
+        var rows = new List<ScheduleRow>(rowCount);
         for (var index = 0; index < rowCount; index++)
         {
             var row = vector.Rows[index];
@@ -251,8 +252,9 @@ public sealed class BulletScheduleGeneratorZeroCouponVectorTests
             var interest = Euro(row.Interest);
             var principal = Euro(row.Principal);
             var closingBalance = Euro(row.Closing);
-            Assert.Equal(Date(row.Date), periods[index].End);
-            Assert.Equal(Euro(row.Opening), openingBalance);
+            var paymentDate = Date(row.Date);
+            var openingBalance = Euro(row.Opening);
+            Assert.Equal(paymentDate, periods[index].End);
 
             var accrued = calculator.Calculate(rate, openingBalance, periods[index].Start, periods[index].End);
             if (index == rowCount - 1)
@@ -268,12 +270,12 @@ public sealed class BulletScheduleGeneratorZeroCouponVectorTests
                 Assert.Equal(zero, principal);
             }
 
-            Assert.Equal(Euro(row.Total), interest + principal);
-            Assert.Equal(closingBalance, openingBalance + capitalised - principal);
-            openingBalance = closingBalance;
+            rows.Add(new ScheduleRow(index + 1, paymentDate, openingBalance, capitalised,
+                interest, principal, Euro(row.Total), closingBalance));
         }
 
-        Assert.Equal(zero, openingBalance);
+        var schedule = AmortizationSchedule.Create(loanPrincipal, rows);
+        Assert.True(schedule.IsSuccess, schedule.IsSuccess ? string.Empty : schedule.Error.ToString());
     }
 
     private static LocalDate Date(string iso) => LocalDatePattern.Iso.Parse(iso).Value;
