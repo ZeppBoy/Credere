@@ -80,6 +80,13 @@ public sealed class LoanApplicationSubmitTests
         { "CountryCode", SubmitCommand(Applicant() with { CountryCode = "DEU" }) },
         { "CountryCode", SubmitCommand(Applicant() with { CountryCode = "de" }) },
         { "CountryCode", SubmitCommand(Applicant() with { CountryCode = "D1" }) },
+        { "CountryCode", SubmitCommand(Applicant() with { CountryCode = " DE" }) },
+        { "CountryCode", SubmitCommand(Applicant() with { CountryCode = "XX" }) },
+        { "CountryCode", SubmitCommand(Applicant() with { CountryCode = "ZZ" }) },
+        { "CountryCode", SubmitCommand(Applicant() with { CountryCode = "XK" }) },
+        { "CountryCode", SubmitCommand(Applicant() with { CountryCode = "UK" }) },
+        { "CountryCode", SubmitCommand(Applicant() with { CountryCode = "EU" }) },
+        { "CountryCode", SubmitCommand(Applicant() with { CountryCode = "AN" }) },
         { "MonthlyIncome", SubmitCommand(Applicant() with { MonthlyIncome = Eur(-0.01m) }) },
         { "MonthlyDebtPayments", SubmitCommand(Applicant() with { MonthlyDebtPayments = Eur(-0.01m) }) },
         {

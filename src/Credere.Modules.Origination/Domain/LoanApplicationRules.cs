@@ -13,8 +13,6 @@ internal static class LoanApplicationRules
     /// <summary>The largest nominal rate an underwriter can set, in percent.</summary>
     internal const decimal MaximumNominalRatePercent = 100m;
 
-    private const int CountryCodeLength = 2;
-
     /// <summary>Checks the applicant snapshot and the requested terms of a submission.</summary>
     /// <param name="applicant">The applicant snapshot.</param>
     /// <param name="terms">The requested terms.</param>
@@ -31,12 +29,13 @@ internal static class LoanApplicationRules
             return new ValidationError(nameof(applicant.FullName), "must not be empty");
         }
 
-        // Structure only: docs/modules/origination.md does not name the ISO 3166-1 list the module checks against.
-        if (!IsCountryCodeShape(applicant.CountryCode))
+        // The owner chose the pinned list of officially assigned codes on PR #90, so user-assigned and reserved
+        // codes such as XK, ZZ and UK are rejected along with malformed ones.
+        if (!IsoCountryCodes.IsAssigned(applicant.CountryCode))
         {
             return new ValidationError(
                 nameof(applicant.CountryCode),
-                "must be an ISO 3166-1 alpha-2 code of two uppercase letters A-Z");
+                "must be an officially assigned ISO 3166-1 alpha-2 code in uppercase, such as DE");
         }
 
         if (applicant.MonthlyIncome.Amount < 0m)
@@ -80,7 +79,4 @@ internal static class LoanApplicationRules
 
     private static ValidationError? ValidatePrincipal(Money principal, string field) =>
         principal.Amount > 0m ? null : new ValidationError(field, "must be greater than zero");
-
-    private static bool IsCountryCodeShape(string? code) =>
-        code is { Length: CountryCodeLength } && code.All(character => character is >= 'A' and <= 'Z');
 }
