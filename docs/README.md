@@ -12,6 +12,7 @@ This directory is the authoritative description of Credere's intent, architectur
 - [`open-questions.md`](open-questions.md) — undecided design questions. Replaces "proposed" ADRs.
 - [`parallel-development.md`](parallel-development.md) — how several agents work at once: worktrees, task claims, file ownership, merging.
 - [`plans/`](plans/README.md) — milestone task breakdowns with dependencies and owned paths.
+- [`prompts/`](prompts/) — session prompts for the [implementers](prompts/implementer.md) and the [coordinator](prompts/coordinator.md).
 
 ### Domain — shared banking concepts
 - [`domain/value-objects.md`](domain/value-objects.md) — Money, Percentage, LoanTerm.

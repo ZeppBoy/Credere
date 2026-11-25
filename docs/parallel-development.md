@@ -106,6 +106,8 @@ An implementer doesn't have to stop at each gate. Given a lane (a list of tasks 
 
 The limit of two open PRs keeps unreviewed work and rebases small. Every gate stays in place: vectors before code, cross-vendor checks, the hooks, and the owner's merge. A long session loses detail as its context fills, so the implementer writes a handoff comment on its current PR after every three tasks, and the next task starts in a fresh session.
 
+The session prompts live in [`prompts/`](prompts/): [`implementer.md`](prompts/implementer.md) for both implementers, and [`coordinator.md`](prompts/coordinator.md) for the coordinator.
+
 **Handoff.** An implementer that stops before finishing (the session ends, the context fills up, or it is blocked) writes a handoff comment on the PR. The comment covers what is done, what comes next, and any open problems. The next session continues from the PR, not from local notes.
 
 ## Ownership rules
