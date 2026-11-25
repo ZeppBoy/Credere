@@ -23,3 +23,4 @@ ADRs are append-only. When a decision changes, we add a new ADR that supersedes 
 - [0008 — Module public contracts: single `IModule` + DTOs + integration events; internals `internal`](0008-module-public-contracts.md)
 - [0009 — `Result<T, E>` and the `DomainError` hierarchy live in `Credere.Core` (amends 0006)](0009-result-and-domainerror-in-core.md)
 - [0010 — Line coverage is measured with `coverlet.collector`](0010-coverage-tool-coverlet-collector.md)
+- [0011 — M2 module contracts: handoff, payment excess, aging, business dates, accrual and payoff](0011-m2-module-contracts.md)

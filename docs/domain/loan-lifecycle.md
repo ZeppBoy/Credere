@@ -1,96 +1,135 @@
 # Loan lifecycle
 
-The Servicing module's `Loan` aggregate moves through a fixed state machine. Every transition emits a domain event and (via the outbox) an integration event. Invalid transitions return `Result<T, DomainError>`; they do not throw.
+**Status:** Planned (M2). The contract below was written in M2-C1 from owner decisions D3 and D5 ([ADR-0011](../adr/0011-m2-module-contracts.md)); it is implemented by M2-04.
+
+The Servicing module's `Loan` aggregate moves through a fixed state machine. Every state transition emits a domain event and (via the outbox) an integration event. Invalid transitions return `Result<T, DomainError>`; they do not throw.
 
 ## States
 
+```mermaid
+stateDiagram-v2
+    [*] --> Disbursed: Disburse
+    Disbursed --> Active: Activate
+
+    Active --> InGrace: ApplyAging, 0 < d < pastDueThreshold
+    Active --> PastDue: ApplyAging, pastDueThreshold <= d < defaultThreshold
+    Active --> Defaulted: ApplyAging, d >= defaultThreshold
+
+    InGrace --> Active: ApplyAging, d = 0 (cure)
+    InGrace --> InGrace: ApplyAging, days changed
+    InGrace --> PastDue: ApplyAging, pastDueThreshold <= d < defaultThreshold
+    InGrace --> Defaulted: ApplyAging, d >= defaultThreshold
+
+    PastDue --> Active: ApplyAging, d = 0 (cure)
+    PastDue --> InGrace: ApplyAging, 0 < d < pastDueThreshold
+    PastDue --> PastDue: ApplyAging, days changed
+    PastDue --> Defaulted: ApplyAging, d >= defaultThreshold
+
+    Defaulted --> Defaulted: ApplyAging, days changed
+    Defaulted --> WrittenOff: WriteOff
+    Defaulted --> Restructured: Restructure
+    Defaulted --> Recovered: Recover
+
+    Active --> PaidOff: closing payment or payoff
+    InGrace --> PaidOff: closing payment or payoff
+    PastDue --> PaidOff: closing payment or payoff
+
+    WrittenOff --> [*]
+    Restructured --> [*]
+    Recovered --> [*]
+    PaidOff --> [*]
 ```
-             ┌──────────────┐
-             │   Disbursed  │   initial (after confirmed disbursement)
-             └──────┬───────┘
-                    │ Activate (first business day after disbursement)
-                    ▼
-             ┌──────────────┐
-    ┌────────┤    Active    ├────────┐
-    │        └──────┬───────┘        │
-    │               │                │
-    │  ApplyAging   │  ApplyAging    │  ApplyAging
-    │  (days=0)     │  (0<d<pd)      │  (d≥default)
-    │               ▼                │
-    │        ┌──────────────┐        │
-    │   ┌────┤   InGrace    ├────┐   │
-    │   │    └──────┬───────┘    │   │
-    │   │           │            │   │
-    │   │ ApplyAging│ ApplyAging │   │
-    │   │ (d≥pd)    │ (d≥def)    │   │
-    │   │           ▼            │   │
-    │   │    ┌──────────────┐    │   │
-    │   └────┤   PastDue    ├────┘   │
-    │        └──────┬───────┘        │
-    │               │                │
-    │ ApplyAging    │ ApplyAging     │
-    │ (d=0, Cure)   │ (d≥default)    │
-    │               ▼                │
-    │        ┌──────────────┐        │
-    │        │   Defaulted  │◀───────┘
-    │        └──────┬───────┘
-    │               │
-    │     ┌─────────┼─────────┐
-    │     │         │         │
-    │     ▼         ▼         ▼
-    │  ┌──────┐┌─────────┐┌──────────┐
-    │  │Write ││Restruc- ││Recovered │
-    │  │ Off  ││ tured   ││          │   (terminal states)
-    │  └──────┘└─────────┘└──────────┘
-    │
-    │  RecordPayment (that pays off the balance) from any non-terminal state:
-    └──────────────────────────────────────────────────────▶ PaidOff (terminal)
-```
+
+A payment that leaves a balance, an accrual, and an aging run that changes nothing are not transitions and draw no arrow. [Payments and accrual](#payments-and-accrual) and [No-op or transition](#no-op-or-transition) say what each of them emits.
 
 - `Disbursed` — initial state immediately after confirmed disbursement.
 - `Active` — performing; no days past due.
-- `InGrace` — 1 day ≤ days past due < `PastDueThreshold` (default 1 — i.e., grace period is zero days by default; configurable).
+- `InGrace` — 1 day ≤ days past due < `PastDueThreshold`. With the default threshold of 1 the range is empty, so a loan never enters `InGrace` until a product configures a longer grace period.
 - `PastDue` — `PastDueThreshold` ≤ days past due < `DefaultThreshold`.
 - `Defaulted` — days past due ≥ `DefaultThreshold` (default 90).
 - `WrittenOff`, `Restructured`, `Recovered`, `PaidOff` — terminal.
 
 ## Transition table
 
-Every row below is implemented and tested.
+Every row below is implemented and tested. The table and the diagram above are one specification: a change to either changes both.
+
+`d` is the `DaysPastDue` the caller supplies. `pd` is `pastDueThreshold` and `def` is `defaultThreshold`.
 
 | From | Command | Guard | To | Event emitted (domain) | Integration event |
 |---|---|---|---|---|---|
-| Disbursed | Activate | effectiveDate is the first business day after disbursement; not a holiday | Active | `LoanActivated` | — (internal) |
-| Active | ApplyAging | days=0 (explicit no-op; no event) | Active | — | — |
-| Active | ApplyAging | 0 < days < pastDueThreshold | InGrace | `LoanEnteredGracePeriod` | `LoanAged` |
-| Active | ApplyAging | pastDueThreshold ≤ days < defaultThreshold | PastDue | `LoanBecamePastDue` | `LoanAged` |
-| Active | ApplyAging | days ≥ defaultThreshold | Defaulted | `LoanDefaulted` | `LoanAged` |
-| InGrace | ApplyAging | days=0 (Cure) | Active | `LoanBecameActive` | `LoanAged` |
-| InGrace | ApplyAging | pastDueThreshold ≤ days < defaultThreshold | PastDue | `LoanBecamePastDue` | `LoanAged` |
-| InGrace | ApplyAging | days ≥ defaultThreshold | Defaulted | `LoanDefaulted` | `LoanAged` |
-| PastDue | ApplyAging | days=0 (Cure) | Active | `LoanBecameActive` | `LoanAged` |
-| PastDue | ApplyAging | pastDueThreshold ≤ days < defaultThreshold (re-aging) | PastDue | `LoanPastDueDaysUpdated` | `LoanAged` |
-| PastDue | ApplyAging | days ≥ defaultThreshold | Defaulted | `LoanDefaulted` | `LoanAged` |
-| Active / InGrace / PastDue | RecordPayment | amount > 0, amount ≤ remaining balance, currency matches | same (or PaidOff if closes balance) | `PaymentReceived` and optionally `LoanPaidOff` | `PaymentRecorded`, optionally `LoanPaidOff` |
-| Active / InGrace / PastDue | Payoff | — | PaidOff | `LoanPaidOff` | `LoanPaidOff` |
+| (none) | Disburse | the disbursement intent exists and has not produced a loan | Disbursed | `LoanDisbursed` | `LoanDisbursed` |
+| Disbursed | Activate | `EffectiveDate` is the first business day after the disbursement date, under the product's calendar | Active | `LoanActivated` | `LoanActivated` |
+| Active | ApplyAging | d = 0 | Active | — (no-op) | — |
+| Active | ApplyAging | 0 < d < pd | InGrace | `LoanEnteredGracePeriod` | `LoanAged` |
+| Active | ApplyAging | pd ≤ d < def | PastDue | `LoanBecamePastDue` | `LoanAged` |
+| Active | ApplyAging | d ≥ def | Defaulted | `LoanDefaulted` | `LoanAged` |
+| InGrace | ApplyAging | d = 0 (cure) | Active | `LoanBecameActive` | `LoanAged` |
+| InGrace | ApplyAging | 0 < d < pd and d ≠ current `DaysPastDue` | InGrace | `LoanPastDueDaysUpdated` | `LoanAged` |
+| InGrace | ApplyAging | 0 < d < pd and d = current `DaysPastDue` | InGrace | — (no-op) | — |
+| InGrace | ApplyAging | pd ≤ d < def | PastDue | `LoanBecamePastDue` | `LoanAged` |
+| InGrace | ApplyAging | d ≥ def | Defaulted | `LoanDefaulted` | `LoanAged` |
+| PastDue | ApplyAging | d = 0 (cure) | Active | `LoanBecameActive` | `LoanAged` |
+| PastDue | ApplyAging | 0 < d < pd (partial cure) | InGrace | `LoanEnteredGracePeriod` | `LoanAged` |
+| PastDue | ApplyAging | pd ≤ d < def and d ≠ current `DaysPastDue` (re-aging) | PastDue | `LoanPastDueDaysUpdated` | `LoanAged` |
+| PastDue | ApplyAging | pd ≤ d < def and d = current `DaysPastDue` | PastDue | — (no-op) | — |
+| PastDue | ApplyAging | d ≥ def | Defaulted | `LoanDefaulted` | `LoanAged` |
+| Defaulted | ApplyAging | d ≥ def and d ≠ current `DaysPastDue` (re-aging) | Defaulted | `LoanPastDueDaysUpdated` | `LoanAged` |
+| Defaulted | ApplyAging | d ≥ def and d = current `DaysPastDue` | Defaulted | — (no-op) | — |
+| Active / InGrace / PastDue | AccrueInterest | `BusinessDate` is after `AccruedThroughDate` | same | `InterestAccrued` (internal only) | — |
+| Active / InGrace / PastDue | AccrueInterest | `BusinessDate` is on or before `AccruedThroughDate` | same | — (no-op) | — |
+| Defaulted | AccrueInterest | as above | Defaulted | `InterestAccrued` (internal only) | — |
+| Active / InGrace / PastDue | RecordPayment | amount > 0, currency matches, `EffectiveDate` ≥ `AccruedThroughDate`, balance remains after allocation | same | `PaymentReceived` (not a transition; excess is zero) | `PaymentRecorded` |
+| Active / InGrace / PastDue | RecordPayment | as above, and allocation leaves all four balances at zero (excess may be positive) | PaidOff | `PaymentReceived`, `PaymentExcessRecorded` if excess > 0, `LoanPaidOff` | `PaymentRecorded`, `PaymentExcessRecorded` if excess > 0, `LoanPaidOff` |
+| Active / InGrace / PastDue | ExecutePayoff | the quote total still equals the recomputed total for the same payoff date | PaidOff | `PaymentReceived`, `LoanPaidOff` | `PaymentRecorded`, `LoanPaidOff` |
 | Defaulted | WriteOff | reason non-empty | WrittenOff | `LoanWrittenOff` | `LoanWrittenOff` |
 | Defaulted | Restructure | plan non-empty | Restructured | `LoanRestructured` | `LoanRestructured` |
-| Defaulted | Recover | method non-empty | Recovered | `LoanRecovered` | `LoanRecovered` |
+| Defaulted | Recover | method non-empty, amount ≥ 0 | Recovered | `LoanRecovered` | `LoanRecovered` |
 
-Any other `(state, command)` pair returns `Result<Unit, DomainError>.Failure(new InvalidStateTransition(stateName, commandName, reason))`, using the state and command names as strings. See [ADR-0009](../adr/0009-result-and-domainerror-in-core.md).
+Any other `(state, command)` pair returns `Result<Unit, DomainError>.Failure(new InvalidStateTransition(stateName, commandName, reason))`, using the state and command names as strings. See [ADR-0009](../adr/0009-result-and-domainerror-in-core.md). Two cases of that rule are listed because the transition table does not give them a row:
+
+- `ApplyAging` on a `Defaulted` loan with d < `def`. A defaulted loan does not cure through aging.
+- `RecordPayment`, `ExecutePayoff` or `AccrueInterest` on a loan in `Disbursed`, or in a terminal state (accrual is also refused on `Disbursed`).
+
+## No-op or transition
+
+`ApplyAging` compares the supplied days with the loan's current `(State, DaysPastDue)`:
+
+- **Transition.** The state changes. One domain event, one history row, one `LoanAged` integration event.
+- **Days update.** The state is the same and `DaysPastDue` changes. This is *not* a state transition, but it is a recorded change: one `LoanPastDueDaysUpdated` domain event, one history row, one `LoanAged` (its payload names the previous and new state, so a consumer can tell the two apart).
+- **No-op.** The state and `DaysPastDue` are both unchanged. No domain event, no history row, no outbox row. The command still succeeds, returns `AgingResult { Changed = false }`, and stores its idempotency receipt in the same transaction, so a retry returns the same result.
+
+"Every transition emits exactly one domain event" (the Servicing invariant and the roadmap acceptance) holds because a no-op is not a transition. An active loan with zero days past due is the common no-op.
+
+## Payments and accrual
+
+These rules are the owner's decision D3 ([ADR-0011](../adr/0011-m2-module-contracts.md)).
+
+- **Eligibility.** Ordinary payments are accepted in `Active`, `InGrace` and `PastDue`. Payments on a `Defaulted` loan are **not decided** (see [Not decided](#not-decided)); until then they return `InvalidStateTransition`.
+- **Overpayment.** A positive overpayment on an eligible loan is allowed. The payment is allocated through `PaymentAllocationWaterfall` ([payment-allocation.md](payment-allocation.md)) after interest has been accrued to the payment's effective date. Whatever the waterfall cannot place is the `Excess`.
+- **Excess implies payoff.** `Excess > 0` only happens when all four balances reach zero, so such a payment always moves the loan to `PaidOff`. The excess is recorded for return: it is in the `PaymentRecorded` payload and in its own `PaymentExcessRecorded` event, and the loan keeps no credit balance. The return of the money to the payer is a treasury process outside M2.
+- **Backdating.** `EffectiveDate` earlier than `AccruedThroughDate` is a `ValidationError` on `effectiveDate`. Replaying history is not supported in M2.
+- **Accrual and payment order.** Interest through the effective date is accrued first, then the payment is allocated. [servicing.md](../modules/servicing.md#interest-accrual-and-posting) defines the accrual.
+- **Fees.** M2 posts no fees, so `FeesOutstanding` is zero on every M2 loan. The field exists so that the waterfall is the full waterfall from the first slice.
 
 ## Thresholds
 
 - `pastDueThreshold` — default 1 day. Configurable per product.
 - `defaultThreshold` — default 90 days. Configurable per product; subject to IFRS 9 and local regulatory floors (see [`ifrs9-staging.md`](ifrs9-staging.md)).
 
-Both thresholds live on the loan's approved terms (immutable per loan after disbursement).
+Both thresholds are copied from the product configuration onto the loan at disbursement and are immutable after that.
 
 ## Days-past-due semantics
 
-- `daysPastDue` is computed by the aging batch, not by the aggregate. The aggregate receives `daysPastDue: int` as a command parameter.
-- The aggregate tracks `DaysPastDue` as nullable (null when `State == Active`, non-null otherwise).
-- "Business days" interpretation is governed by the product's `HolidayCalendar`; the aging batch is responsible for that interpretation and passes the numeric result in.
+- `daysPastDue` is computed by the aging batch, not by the aggregate. The aggregate receives `daysPastDue: int` as a command parameter. Deriving it from the schedule and the unpaid balances is the batch's concern (M4).
+- The aggregate tracks `DaysPastDue` as nullable (null when `State` is `Disbursed` or `Active`, non-null otherwise).
+- "Business days" interpretation is governed by the product's business calendar ([servicing.md](../modules/servicing.md#business-dates-and-calendars)); the aging batch is responsible for that interpretation and passes the numeric result in.
+
+## Not decided
+
+These are open, and the contract above holds until the owner decides them. Each is also raised on the M2-C1 pull request.
+
+1. Whether payments are accepted on a `Defaulted` loan, and what they do to its state.
+2. Whether a `Defaulted` loan can ever cure back to `Active` (today it can only reach a terminal state).
 
 ## Rehydration
 
@@ -98,4 +137,4 @@ The aggregate supports rehydration from its persisted event stream. A rehydrated
 
 ## Diagram sync
 
-The ASCII diagram in this document and the transition table are the authoritative specification. The aggregate's `ApplyAging` / `Activate` / `RecordPayment` / `Payoff` / `WriteOff` / `Restructure` / `Recover` implementations must match this table exactly. A PR that changes either must update both.
+The diagram in this document and the transition table are the authoritative specification. The aggregate's `ApplyAging` / `Activate` / `AccrueInterest` / `RecordPayment` / `ExecutePayoff` / `WriteOff` / `Restructure` / `Recover` implementations must match this table exactly. A PR that changes either must update both.
