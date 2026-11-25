@@ -7,7 +7,7 @@ Each milestone in the [roadmap](../roadmap.md) gets a plan here before work star
 | Milestone | Plan | Status |
 |---|---|---|
 | M1 — Core math + shared primitives | [`m1.md`](m1.md) | Approved |
-| M2 — Origination + Servicing | [`m2.md`](m2.md) | Proposed |
+| M2 — Origination + Servicing | [`m2.md`](m2.md) | Approved |
 | M3–M7 | [Outline below](#later-milestones-outline) | Outline |
 
 ## The shape of every milestone plan
@@ -16,6 +16,7 @@ Each milestone in the [roadmap](../roadmap.md) gets a plan here before work star
 2. **Contract tasks (serial).** A short sequence lands the public types, interfaces, ADRs and doc fixes that everything else compiles against. These tasks own the [serialized files](../parallel-development.md#serialized-files).
 3. **Fan-out tasks (parallel).** Each owns disjoint paths and depends only on merged contract tasks or other merged fan-out tasks. Financial tasks write their reference vectors first, for owner approval.
 4. **Close-out (serial, coordinator).** Mutation and coverage gates, the architecture tests, `docs/status.md`, the roadmap acceptance check, and the milestone tag.
+5. **Next plan.** A task `M<n+1>-P` writes the next milestone's plan. It depends on this milestone's last contract task, so it runs alongside the fan-out and the next plan is ready for approval when this milestone closes. Plans aren't written further ahead than that: each depends on contracts and decisions the milestone before it settles.
 
 Each task row gives: id, goal, dependencies, gating decision, owned paths, relative size, and whether vectors come first. The [dependency graph](m1.md#dependency-graph) shows the critical path, so implementers and the owner know which work and which reviews to prioritise.
 
