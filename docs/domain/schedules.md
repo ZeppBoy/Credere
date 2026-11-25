@@ -127,7 +127,9 @@ In every other case the difference builds up in the last row. That includes the 
 
 ## 2. Differentiated (Decreasing)
 
-`DifferentiatedScheduleGenerator`. Equal `PrincipalDue` across all rows; `InterestDue` decreases as the balance drops.
+**Status:** Implemented (M1-15). The reference vectors were independently recomputed and approved in PR #52.
+
+`DifferentiatedScheduleGenerator` pays equal principal on every row before maturity. The maturity payment takes the remaining opening balance. Each period accrues interest on its own opening balance.
 
 **Formula.** For each row `i = 1..n`:
 
@@ -137,6 +139,8 @@ interestDueᵢ   = IInterestCalculator.Calculate(Rate, openingBalanceᵢ, period
 totalPaymentᵢ  = principalDueᵢ + interestDueᵢ
 closingBalanceᵢ = openingBalanceᵢ − principalDueᵢ
 ```
+
+The regular principal is divided in exact cents and rounded once, ties to even. Each row has zero `CapitalisedInterest`. If a regular principal payment would reach or exceed the opening balance, generation returns a `ValidationError` on `principal` at that row. Negative original principal and amounts that cannot be represented exactly as money also return a `ValidationError` on `principal`.
 
 **Use case:** "straight-line" repayment schedules common in commercial loans.
 

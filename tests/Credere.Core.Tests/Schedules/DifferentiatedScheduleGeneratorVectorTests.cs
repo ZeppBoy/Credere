@@ -1,7 +1,11 @@
+using System.Globalization;
 using Credere.Core.DayCounts;
 using Credere.Core.Rates;
+using Credere.Core.Results;
 using Credere.Core.Schedules;
 using Credere.Core.ValueObjects;
+using FsCheck;
+using FsCheck.Xunit;
 using NodaTime;
 using NodaTime.Text;
 using Xunit;
@@ -24,8 +28,7 @@ namespace Credere.Core.Tests.Schedules;
 /// ISDA 2006 Definitions §4.16(b), (d), (e), (f) and (g). Principal and periodic interest
 /// are each rounded to cents with ties to even per docs/domain/value-objects.md, "Money".
 /// The loans use the M1-14 schedule fixtures and their dates, with zero-rate variations
-/// targeting half-cent rounding and the smallest increase in principal that avoids overpayment
-/// before maturity. Expected rows were calculated with exact rational arithmetic and stored
+/// targeting half-cent rounding and the early repayment boundary approved in PR #52. Expected rows were calculated with exact rational arithmetic and stored
 /// as decimal amounts.
 /// </para>
 /// </remarks>
@@ -206,18 +209,6 @@ public sealed class DifferentiatedScheduleGeneratorVectorTests
                 new("2026-02-01", 10000.03m, 0.00m, 5000.02m, 5000.02m, 5000.01m),
                 new("2026-03-01", 5000.01m, 0.00m, 5000.01m, 5000.01m, 0.00m),
             ]),
-        // 0.04 / 5 = 0.008, which rounds to 0.01. This is one cent above the overpayment case from PR #51.
-        // Rows 1 and 2 each pay 0.01 principal and zero interest, leaving 0.03 and 0.02, respectively.
-        // Row 4 pays the last cent of principal. Row 5 takes the remaining balance, which is zero.
-        new("RegularPrincipalEqualsBalanceBeforeMaturity", 0.04m, 0m, "30E/360", 5, PaymentFrequency.Monthly,
-            "2026-01-01", "2026-02-01",
-            [
-                new("2026-02-01", 0.04m, 0.00m, 0.01m, 0.01m, 0.03m),
-                new("2026-03-01", 0.03m, 0.00m, 0.01m, 0.01m, 0.02m),
-                new("2026-04-01", 0.02m, 0.00m, 0.01m, 0.01m, 0.01m),
-                new("2026-05-01", 0.01m, 0.00m, 0.01m, 0.01m, 0.00m),
-                new("2026-06-01", 0.00m, 0.00m, 0.00m, 0.00m, 0.00m),
-            ]),
     ];
 
     /// <summary>Gets the names of the complete reference schedules.</summary>
@@ -237,62 +228,152 @@ public sealed class DifferentiatedScheduleGeneratorVectorTests
 
     [Theory]
     [MemberData(nameof(Names))]
-    public void ReferenceSchedule_matchesTheSharedPeriodInterestAndRowContracts(string name)
+    public void Generate_referenceSchedule_matchesEveryField(string name)
     {
-        var vector = Vectors.Single(entry => entry.Name == name);
-        var convention = vector.Convention switch
+        var vector = Vectors.Single(entry => string.Equals(entry.Name, name, StringComparison.Ordinal));
+        var schedule = Generate(Request(vector));
+        Assert.Equal(vector.Rows.Length, schedule.Rows.Count);
+
+        for (var index = 0; index < vector.Rows.Length; index++)
         {
-            "ACT/360" => (DayCountConvention)new Act360(),
+            var expected = vector.Rows[index];
+            var row = new ScheduleRow(index + 1, Date(expected.Date), Euro(expected.Opening), Euro(0m),
+                Euro(expected.Interest), Euro(expected.Principal), Euro(expected.Total), Euro(expected.Closing));
+
+            Assert.Equal(row, schedule.Rows[index]);
+        }
+    }
+
+    [Theory]
+    [InlineData(3, 3)]
+    [InlineData(4, 4)]
+    public void Generate_regularPrincipalWouldDepleteTheBalance_returnsAValidationErrorOnPrincipal(
+        int principalCents, int firstRejectedRow)
+    {
+        // PR #52 and M1-23. Both principals round to a one-cent instalment over five months.
+        // The three-cent loan first reaches zero on row 3, and would overpay on row 4 if allowed to continue.
+        // The four-cent loan first reaches zero on row 4.
+        var request = Request(principalCents / 100m, 0m, new ThirtyE360(), 5, PaymentFrequency.Monthly,
+            Date("2026-01-01"), Date("2026-02-01"));
+
+        var result = Generator.Generate(request);
+
+        var error = Assert.IsType<ValidationError>(result.Error);
+        Assert.Equal("principal", error.Field);
+        Assert.Contains($"row {firstRejectedRow.ToString(CultureInfo.InvariantCulture)}:", error.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Generate_singleZeroRatePaymentAtDecimalLimit_paysThePrincipalExactly()
+    {
+        var request = Request(decimal.MaxValue, 0m, new ThirtyE360(), 1, PaymentFrequency.Monthly,
+            Date("2026-01-01"), Date("2026-02-01"));
+
+        var row = Assert.Single(Generate(request).Rows);
+        Assert.Equal(request.Principal, row.TotalPayment);
+        Assert.Equal(Euro(0m), row.ClosingBalance);
+    }
+
+    [Fact]
+    public void Generate_roundedPrincipalBeyondDecimalPrecision_returnsAValidationErrorOnPrincipal()
+    {
+        // MaxValue is an odd whole-unit amount. Half ends in .50, which exceeds the decimal coefficient limit.
+        var request = Request(decimal.MaxValue, 0m, new ThirtyE360(), 2, PaymentFrequency.Monthly,
+            Date("2026-01-01"), Date("2026-02-01"));
+
+        var result = Generator.Generate(request);
+
+        Assert.Equal("principal", Assert.IsType<ValidationError>(result.Error).Field);
+    }
+
+    [Fact]
+    public void Generate_negativeOriginalPrincipal_returnsAValidationErrorOnPrincipal()
+    {
+        var request = Request(-1m, 0m, new ThirtyE360(), 1, PaymentFrequency.Monthly,
+            Date("2026-01-01"), Date("2026-02-01"));
+
+        var result = Generator.Generate(request);
+
+        Assert.Equal("principal", Assert.IsType<ValidationError>(result.Error).Field);
+    }
+
+    [Property]
+    public void Generate_validPrincipalAndTerm_preservesPrincipalInterestAndRowCount(
+        PositiveInt amount, PositiveInt count, bool quarterly)
+    {
+        var rowCount = 1 + (count.Get % 60);
+        // A regular principal of at least one unit keeps the final balance positive despite rounding.
+        var principal = ((100 + (amount.Get % 10_000)) * rowCount + (amount.Get % rowCount)) / 100m;
+        var frequency = quarterly ? PaymentFrequency.Quarterly : PaymentFrequency.Monthly;
+        var months = quarterly ? rowCount * 3 : rowCount;
+        var request = Request(principal, 5m, new ThirtyE360(), months, frequency,
+            Date("2026-01-15"), quarterly ? Date("2026-04-15") : Date("2026-02-15"));
+
+        var rows = Generate(request).Rows;
+
+        Assert.Equal(rowCount, rows.Count);
+        Assert.Equal(principal, rows.Sum(row => row.PrincipalDue.Amount));
+        Assert.Equal(Euro(0m), rows[^1].ClosingBalance);
+        Assert.All(rows.Take(rowCount - 1), row => Assert.Equal(rows[0].PrincipalDue, row.PrincipalDue));
+
+        var previousDate = request.DisbursementDate;
+        foreach (var row in rows)
+        {
+            Assert.Equal(Calculator.Calculate(request.Rate, row.OpeningBalance, previousDate, row.PaymentDate), row.InterestDue);
+            previousDate = row.PaymentDate;
+        }
+    }
+
+    [Theory]
+    [InlineData("ThirtyE360Level")]
+    [InlineData("QuarterlyActualActual")]
+    public Task Generate_canonicalLoan_matchesSnapshotFromApprovedVectors(string name)
+    {
+        var vector = Vectors.Single(entry => string.Equals(entry.Name, name, StringComparison.Ordinal));
+        var rows = Generate(Request(vector)).Rows;
+        var header = FormattableString.Invariant(
+            $"{vector.Name}: EUR {vector.Principal:F2} at {vector.RatePercent}% ({vector.Convention}), {vector.Months} months, {vector.Frequency}");
+        var lines = rows.Select(row => FormattableString.Invariant(
+            $"{row.Index} | {LocalDatePattern.Iso.Format(row.PaymentDate)} | {row.OpeningBalance.Amount:F2} | {row.InterestDue.Amount:F2} | {row.PrincipalDue.Amount:F2} | {row.TotalPayment.Amount:F2} | {row.ClosingBalance.Amount:F2}"));
+        var snapshot = header + "\nindex | date | opening | interest | principal | total | closing\n"
+            + string.Join('\n', lines) + "\n";
+
+        return Verifier.Verify(snapshot, "txt")
+            .UseDirectory("Snapshots")
+            .UseFileName($"DifferentiatedScheduleGenerator.{name}");
+    }
+
+    private static readonly InterestCalculator Calculator = new();
+    private static readonly DifferentiatedScheduleGenerator Generator = new(Calculator);
+
+    private static AmortizationSchedule Generate(ScheduleRequest request)
+    {
+        var result = Generator.Generate(request);
+        Assert.True(result.IsSuccess, result.IsSuccess ? string.Empty : result.Error.ToString());
+        return result.Value;
+    }
+
+    private static ScheduleRequest Request(Vector vector)
+    {
+        DayCountConvention convention = vector.Convention switch
+        {
+            "ACT/360" => new Act360(),
             "ACT/365 Fixed" => new Act365Fixed(),
             "ACT/ACT (ISDA)" => new ActActIsda(),
             "30/360 ISDA" => new Thirty360Isda(),
             "30E/360" => new ThirtyE360(),
-            _ => throw new ArgumentOutOfRangeException(nameof(name), vector.Convention, "Unknown reference convention."),
+            _ => throw new ArgumentOutOfRangeException(nameof(vector), vector.Convention, "Unknown reference convention."),
         };
-        var rate = FixedRate.Create(new Percentage(vector.RatePercent), convention).Value;
-        var principal = Euro(vector.Principal);
-        var disbursement = Date(vector.Disbursement);
-        var firstPayment = Date(vector.FirstPayment);
-        var term = LoanTerm.FromMonths(vector.Months);
-        Assert.True(ScheduleRequest.Create(principal, rate, term, disbursement, firstPayment, vector.Frequency).IsSuccess);
 
-        var rowCount = SchedulePeriods.RowCount(term, vector.Frequency);
-        Assert.Equal(rowCount, vector.Rows.Length);
-        var periods = SchedulePeriods.Periods(disbursement, firstPayment, vector.Frequency, rowCount);
-        var calculator = new InterestCalculator();
-        var rows = new List<ScheduleRow>(rowCount);
-        for (var index = 0; index < rowCount; index++)
-        {
-            var expected = vector.Rows[index];
-            var opening = Euro(expected.Opening);
-            var interest = Euro(expected.Interest);
-            Assert.Equal(Date(expected.Date), periods[index].End);
-            Assert.Equal(interest, calculator.Calculate(rate, opening, periods[index].Start, periods[index].End));
-
-            rows.Add(new ScheduleRow(index + 1, Date(expected.Date), opening,
-                interest, Euro(expected.Principal), Euro(expected.Total), Euro(expected.Closing)));
-        }
-
-        var schedule = AmortizationSchedule.Create(principal, rows);
-        Assert.True(schedule.IsSuccess, schedule.IsSuccess ? string.Empty : schedule.Error.ToString());
-        Assert.All(rows.Take(rowCount - 1), row => Assert.Equal(rows[0].PrincipalDue, row.PrincipalDue));
-        Assert.Equal(rows[^1].OpeningBalance, rows[^1].PrincipalDue);
-        Assert.Equal(vector.Principal, vector.Rows.Sum(row => row.Principal));
+        return Request(vector.Principal, vector.RatePercent, convention, vector.Months, vector.Frequency,
+            Date(vector.Disbursement), Date(vector.FirstPayment));
     }
 
-    [Fact]
-    public void ReferencePrincipal_roundingUpOnThreeCentsOverFivePayments_overpaysOnTheFourthRow()
-    {
-        // PR #51, reproduced for differentiated repayment under schedules.md §2.
-        // In cents, 3 / 5 = 0.6. Paying one cent on each of the first three rows exhausts the balance.
-        var principal = Euro(0.03m);
-        var regularPrincipal = Euro(0.01m);
-        var openingOnFourthRow = principal - regularPrincipal - regularPrincipal - regularPrincipal;
-
-        Assert.Equal(regularPrincipal, Euro(principal.Amount / 5));
-        Assert.Equal(Euro(0m), openingOnFourthRow);
-        Assert.Equal(Euro(-0.01m), openingOnFourthRow - regularPrincipal);
-    }
+    private static ScheduleRequest Request(
+        decimal amount, decimal ratePercent, DayCountConvention convention, int months,
+        PaymentFrequency frequency, LocalDate disbursement, LocalDate firstPayment) =>
+        ScheduleRequest.Create(Euro(amount), FixedRate.Create(new Percentage(ratePercent), convention).Value,
+            LoanTerm.FromMonths(months), disbursement, firstPayment, frequency).Value;
 
     private static LocalDate Date(string iso) => LocalDatePattern.Iso.Parse(iso).Value;
 
