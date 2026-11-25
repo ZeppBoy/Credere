@@ -1,5 +1,3 @@
-using Credere.Modules.Servicing.Application.Queries.QuotePayoff;
-using Credere.Modules.Servicing.Contracts;
 using Credere.Modules.Servicing.Domain;
 using FsCheck;
 using FsCheck.Xunit;
@@ -16,19 +14,18 @@ public sealed class PayoffCalculationPropertiesTests
     {
         var dueDate = Schedule.Rows[period.Get % Schedule.Rows.Count].PaymentDate;
         var payoffDate = dueDate.PlusDays(-(daysBeforeDueDate.Get % 28));
-        var query = new QuotePayoff(new LoanId(Guid.NewGuid()), payoffDate);
         var fees = Euro(0m);
         var initial = At();
 
-        var beforePosting = PayoffCalculation.Quote(query, Principal, fees, initial, Rate, Schedule, Calculator).Value;
+        var beforePosting = PayoffCalculation.Quote(payoffDate, Principal, fees, initial, Rate, Schedule, Calculator).Value;
         var posted = InterestAccrual.Project(initial, payoffDate, Principal, Rate, Schedule, Calculator).Position;
-        var afterPosting = PayoffCalculation.Quote(query, Principal, fees, posted, Rate, Schedule, Calculator).Value;
+        var afterPosting = PayoffCalculation.Quote(payoffDate, Principal, fees, posted, Rate, Schedule, Calculator).Value;
 
         return beforePosting == afterPosting
             && afterPosting.Principal == Principal
             && afterPosting.CurrentInterest == posted.CurrentInterest
             && afterPosting.PastDueInterest == posted.PastDueInterest
             && afterPosting.Total == Principal + fees + posted.CurrentInterest + posted.PastDueInterest
-            && PayoffCalculation.ValidateQuotedTotal(afterPosting, beforePosting.Total).IsSuccess;
+            && PayoffCalculation.ValidateQuotedTotal(afterPosting.Total, beforePosting.Total).IsSuccess;
     }
 }

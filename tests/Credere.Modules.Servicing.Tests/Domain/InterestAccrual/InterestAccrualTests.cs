@@ -48,9 +48,8 @@ public sealed class InterestAccrualTests
 
         var result = InterestAccrual.Project(position, end, Principal, Rate, Schedule, Calculator);
 
-        result.Posting.Changed.Should().Be(end > position.AccruedThroughDate, "{0} defines whether the date advanced", caseId);
+        result.Changed.Should().Be(end > position.AccruedThroughDate, "{0} defines whether the date advanced", caseId);
         result.Position.AccruedThroughDate.Should().Be(end);
-        result.Posting.AccruedThroughDate.Should().Be(end);
         AssertBalances(result, posted, current, pastDue);
     }
 
@@ -64,7 +63,7 @@ public sealed class InterestAccrualTests
 
         var result = InterestAccrual.Project(position, Date(runDate), Euro(principal), Rate, Schedule, Calculator);
 
-        result.Posting.Changed.Should().BeTrue("{0} advances accrual", caseId);
+        result.Changed.Should().BeTrue("{0} advances accrual", caseId);
         result.Position.AccruedThroughDate.Should().Be(Date(runDate));
         AssertBalances(result, posted, current, pastDue);
     }
@@ -83,23 +82,39 @@ public sealed class InterestAccrualTests
 
         var result = InterestAccrual.Project(position, end, amount, rate, schedule, Calculator);
 
-        result.Posting.Accrued.Should().Be(Euro(expected), "{0} specifies the rounded segment interest", caseId);
+        result.Accrued.Should().Be(Euro(expected), "{0} specifies the rounded segment interest", caseId);
         result.Position.CurrentInterest.Should().Be(Euro(expected));
         result.Position.PastDueInterest.Should().Be(Euro(0m));
     }
 
+    // IA-09, replay after the first due date has passed.
     [Fact]
     public void Project_PriorDate_PreservesThePostedPosition()
     {
-        // IA-09, replay after the first due date has passed.
         var position = At("2026-02-16", "2026-02-15", current: 1.39m, pastDue: 41.67m);
 
         var result = InterestAccrual.Project(position, Date("2026-02-15"), Principal, Rate, Schedule, Calculator);
 
         result.Position.Should().BeSameAs(position);
-        result.Posting.Changed.Should().BeFalse();
-        result.Posting.AccruedThroughDate.Should().Be(position.AccruedThroughDate);
-        result.Posting.Accrued.Should().Be(Euro(0m));
+        result.Changed.Should().BeFalse();
+        result.Accrued.Should().Be(Euro(0m));
+    }
+
+    [Fact]
+    public void Project_AfterMaturity_MovesFinalPeriodInterestToPastDue()
+    {
+        // D5 rule 5 applies to the last due date. Only the final interest and principal are unpaid.
+        var finalRow = Schedule.Rows[^1];
+        var maturity = finalRow.PaymentDate;
+        var position = new InterestAccrual.Position(maturity, maturity, finalRow.InterestDue, Euro(0m));
+        var nextDate = maturity.PlusDays(1);
+        var nextDayInterest = Calculator.Calculate(Rate, Principal, maturity, nextDate);
+
+        var result = InterestAccrual.Project(position, nextDate, Principal, Rate, Schedule, Calculator);
+
+        result.Changed.Should().BeTrue();
+        result.Accrued.Should().Be(nextDayInterest);
+        result.Position.Should().Be(new InterestAccrual.Position(nextDate, maturity, nextDayInterest, finalRow.InterestDue));
     }
 
     [Theory]
@@ -119,11 +134,11 @@ public sealed class InterestAccrualTests
             var nextDate = position.AccruedThroughDate.PlusDays(intervalDays);
             var result = InterestAccrual.Project(
                 position, nextDate < end ? nextDate : end, Principal, Rate, Schedule, Calculator);
-            total += result.Posting.Accrued;
+            total += result.Accrued;
             position = result.Position;
         }
 
-        total.Should().Be(Euro(83.34m)).And.Be(oneRun.Posting.Accrued);
+        total.Should().Be(Euro(83.34m)).And.Be(oneRun.Accrued);
         position.Should().Be(oneRun.Position);
         position.PastDueInterest.Should().Be(Schedule.Rows[0].InterestDue);
         position.CurrentInterest.Should().Be(Schedule.Rows[1].InterestDue);
@@ -132,7 +147,7 @@ public sealed class InterestAccrualTests
 
     private static void AssertBalances(InterestAccrual.Projection result, decimal posted, decimal current, decimal pastDue)
     {
-        result.Posting.Accrued.Should().Be(Euro(posted));
+        result.Accrued.Should().Be(Euro(posted));
         result.Position.CurrentInterest.Should().Be(Euro(current));
         result.Position.PastDueInterest.Should().Be(Euro(pastDue));
     }

@@ -2,8 +2,8 @@ using Credere.Core.Rates;
 using Credere.Core.Results;
 using Credere.Core.Schedules;
 using Credere.Core.ValueObjects;
-using Credere.Modules.Servicing.Application.Queries.QuotePayoff;
 using Credere.Modules.Servicing.Contracts;
+using NodaTime;
 
 namespace Credere.Modules.Servicing.Domain;
 
@@ -13,9 +13,12 @@ namespace Credere.Modules.Servicing.Domain;
 /// </summary>
 internal static class PayoffCalculation
 {
+    /// <summary>The outstanding balances and the amount needed to close them.</summary>
+    internal sealed record Amounts(Money Principal, Money PastDueInterest, Money CurrentInterest, Money Fees, Money Total);
+
     /// <summary>Quotes all balances outstanding on the payoff date, assuming no intervening payment.</summary>
-    internal static Result<PayoffQuote, DomainError> Quote(
-        QuotePayoff query,
+    internal static Result<Amounts, DomainError> Quote(
+        LocalDate payoffDate,
         Money principal,
         Money feesOutstanding,
         InterestAccrual.Position position,
@@ -23,23 +26,23 @@ internal static class PayoffCalculation
         AmortizationSchedule schedule,
         IInterestCalculator calculator)
     {
-        if (query.PayoffDate < position.AccruedThroughDate)
+        if (payoffDate < position.AccruedThroughDate)
         {
-            return Result<PayoffQuote, DomainError>.Failure(
-                new ValidationError("payoffDate", "must be on or after the posted accrual date"));
+            return Result<Amounts, DomainError>.Failure(
+                new ValidationError(nameof(payoffDate), "must be on or after the posted accrual date"));
         }
 
-        var projected = InterestAccrual.Project(position, query.PayoffDate, principal, rate, schedule, calculator).Position;
+        var projected = InterestAccrual.Project(position, payoffDate, principal, rate, schedule, calculator).Position;
         var outstandingInterest = InterestAccrual.AddExactly(projected.PastDueInterest, projected.CurrentInterest);
         var total = InterestAccrual.AddExactly(InterestAccrual.AddExactly(principal, outstandingInterest), feesOutstanding);
 
-        return Result<PayoffQuote, DomainError>.Success(new PayoffQuote(
-            query.Id, query.PayoffDate, principal, projected.PastDueInterest, projected.CurrentInterest, feesOutstanding, total));
+        return Result<Amounts, DomainError>.Success(new Amounts(
+            principal, projected.PastDueInterest, projected.CurrentInterest, feesOutstanding, total));
     }
 
     /// <summary>Checks the original total against a quote recomputed from the current state for the same date.</summary>
-    internal static Result<Unit, DomainError> ValidateQuotedTotal(PayoffQuote recomputedQuote, Money quotedTotal) =>
-        recomputedQuote.Total == quotedTotal
+    internal static Result<Unit, DomainError> ValidateQuotedTotal(Money recomputedTotal, Money quotedTotal) =>
+        recomputedTotal == quotedTotal
             ? Result<Unit, DomainError>.Success(Unit.Value)
-            : Result<Unit, DomainError>.Failure(new PayoffQuoteStale(quotedTotal, recomputedQuote.Total));
+            : Result<Unit, DomainError>.Failure(new PayoffQuoteStale(quotedTotal, recomputedTotal));
 }

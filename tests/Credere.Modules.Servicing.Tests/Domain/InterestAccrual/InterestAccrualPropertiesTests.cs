@@ -27,13 +27,13 @@ public sealed class InterestAccrualPropertiesTests
             }
 
             var projection = InterestAccrual.Project(position, nextDate, Principal, Rate, Schedule, Calculator);
-            posted += projection.Posting.Accrued;
+            posted += projection.Accrued;
             position = projection.Position;
         }
 
         var final = InterestAccrual.Project(position, end, Principal, Rate, Schedule, Calculator);
 
-        return posted + final.Posting.Accrued == single.Posting.Accrued
+        return posted + final.Accrued == single.Accrued
             && final.Position == single.Position;
     }
 
@@ -48,7 +48,7 @@ public sealed class InterestAccrualPropertiesTests
         foreach (var row in Schedule.Rows.Take(periodsToPay))
         {
             var projection = InterestAccrual.Project(position, row.PaymentDate, Principal, Rate, Schedule, Calculator);
-            if (projection.Posting.Accrued != row.InterestDue
+            if (projection.Accrued != row.InterestDue
                 || projection.Position.CurrentInterest != row.InterestDue
                 || projection.Position.PastDueInterest != zero)
             {

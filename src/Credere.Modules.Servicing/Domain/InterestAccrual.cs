@@ -1,7 +1,6 @@
 using Credere.Core.Rates;
 using Credere.Core.Schedules;
 using Credere.Core.ValueObjects;
-using Credere.Modules.Servicing.Application.Commands.AccrueInterest;
 using NodaTime;
 
 namespace Credere.Modules.Servicing.Domain;
@@ -23,7 +22,7 @@ internal static class InterestAccrual
         Money PastDueInterest);
 
     /// <summary>The projected balances and the additional interest to post.</summary>
-    internal sealed record Projection(Position Position, AccrualResult Posting);
+    internal sealed record Projection(Position Position, Money Accrued, bool Changed);
 
     /// <summary>
     /// Projects accrual to <paramref name="businessDate"/> with no intervening payment.
@@ -40,7 +39,7 @@ internal static class InterestAccrual
         var zero = Money.Zero(principal.Currency);
         if (businessDate <= position.AccruedThroughDate)
         {
-            return new Projection(position, new AccrualResult(position.AccruedThroughDate, zero, Changed: false));
+            return new Projection(position, zero, Changed: false);
         }
 
         var accruedThrough = position.AccruedThroughDate;
@@ -78,9 +77,7 @@ internal static class InterestAccrual
         var trailingInterest = SegmentIncrease(calculator, rate, principal, segmentStart, accruedThrough, businessDate);
         var nextPosition = new Position(
             businessDate, segmentStart, AddExactly(currentInterest, trailingInterest), pastDueInterest);
-        var posting = new AccrualResult(businessDate, AddExactly(posted, trailingInterest), Changed: true);
-
-        return new Projection(nextPosition, posting);
+        return new Projection(nextPosition, AddExactly(posted, trailingInterest), Changed: true);
     }
 
     internal static Money AddExactly(Money left, Money right)

@@ -1,5 +1,4 @@
 using Credere.Core.Results;
-using Credere.Modules.Servicing.Application.Queries.QuotePayoff;
 using Credere.Modules.Servicing.Contracts;
 using Credere.Modules.Servicing.Domain;
 using FluentAssertions;
@@ -10,8 +9,6 @@ namespace Credere.Modules.Servicing.Tests.Domain;
 
 public sealed class PayoffCalculationTests
 {
-    private static readonly LoanId Loan = new(Guid.NewGuid());
-
     // D5 and PayoffCalculation/reference-vectors.md, PO-01 through PO-08.
     public static TheoryData<string, string, string, string, decimal, decimal, decimal, decimal> ReferenceCases => new()
     {
@@ -31,53 +28,52 @@ public sealed class PayoffCalculationTests
         string caseId, string postedDate, string segmentStart, string payoffDate,
         decimal principal, decimal pastDue, decimal current, decimal expectedTotal)
     {
-        var query = new QuotePayoff(Loan, Date(payoffDate));
         var position = At(postedDate, segmentStart);
 
-        var quote = PayoffCalculation.Quote(query, Euro(principal), Euro(0m), position, Rate, Schedule, Calculator).Value;
+        var quote = PayoffCalculation.Quote(Date(payoffDate), Euro(principal), Euro(0m), position, Rate, Schedule, Calculator).Value;
 
-        var expected = new PayoffQuote(Loan, query.PayoffDate, Euro(principal), Euro(pastDue), Euro(current), Euro(0m), Euro(expectedTotal));
+        var expected = new PayoffCalculation.Amounts(Euro(principal), Euro(pastDue), Euro(current), Euro(0m), Euro(expectedTotal));
         quote.Should().Be(expected, "{0} specifies each balance on the quote date", caseId);
     }
 
+    // PO-09 uses the posted position from IA-05.
     [Fact]
     public void Quote_DateBeforePostedAccrual_ReturnsValidationError()
     {
-        // PO-09 uses the posted position from IA-05.
-        var query = new QuotePayoff(Loan, Date("2026-02-15"));
+        var payoffDate = Date("2026-02-15");
         var position = At("2026-02-16", "2026-02-15", current: 1.39m, pastDue: 41.67m);
 
-        var result = PayoffCalculation.Quote(query, Principal, Euro(0m), position, Rate, Schedule, Calculator);
+        var result = PayoffCalculation.Quote(payoffDate, Principal, Euro(0m), position, Rate, Schedule, Calculator);
 
         result.IsSuccess.Should().BeFalse();
         result.Error.Should().BeOfType<ValidationError>().Which.Field.Should().Be("payoffDate");
     }
 
+    // PO-10 uses the principal payment in IA-08 to supersede the PO-06 quote.
     [Fact]
     public void ValidateQuotedTotal_InterveningPayment_ReturnsStaleQuote()
     {
-        // PO-10: the principal payment in IA-08 supersedes the PO-06 quote.
-        var query = new QuotePayoff(Loan, Date("2026-01-20"));
-        var original = PayoffCalculation.Quote(query, Principal, Euro(0m), At(), Rate, Schedule, Calculator).Value;
+        var payoffDate = Date("2026-01-20");
+        var original = PayoffCalculation.Quote(payoffDate, Principal, Euro(0m), At(), Rate, Schedule, Calculator).Value;
         var recomputed = PayoffCalculation.Quote(
-            query, Euro(5000m), Euro(0m), At("2026-01-17", "2026-01-17"), Rate, Schedule, Calculator).Value;
+            payoffDate, Euro(5000m), Euro(0m), At("2026-01-17", "2026-01-17"), Rate, Schedule, Calculator).Value;
 
-        var result = PayoffCalculation.ValidateQuotedTotal(recomputed, original.Total);
+        var result = PayoffCalculation.ValidateQuotedTotal(recomputed.Total, original.Total);
 
         result.IsSuccess.Should().BeFalse();
         result.Error.Should().Be(new PayoffQuoteStale(Euro(10006.94m), Euro(5002.08m)));
     }
 
+    // PO-11 gives the exact total the aggregate can pass to the waterfall.
     [Fact]
     public void ValidateQuotedTotal_UnchangedLoan_AcceptsTheExactAmountNeededToClose()
     {
-        // PO-11: the aggregate can pass this exact total to the waterfall.
-        var query = new QuotePayoff(Loan, Date("2026-01-20"));
+        var payoffDate = Date("2026-01-20");
         var recomputed = PayoffCalculation.Quote(
-            query, Euro(5000m), Euro(0m), At("2026-01-17", "2026-01-17"), Rate, Schedule, Calculator).Value;
+            payoffDate, Euro(5000m), Euro(0m), At("2026-01-17", "2026-01-17"), Rate, Schedule, Calculator).Value;
         var quoted = Euro(5002.08m);
 
-        var result = PayoffCalculation.ValidateQuotedTotal(recomputed, quoted);
+        var result = PayoffCalculation.ValidateQuotedTotal(recomputed.Total, quoted);
 
         result.IsSuccess.Should().BeTrue();
         (quoted - recomputed.Fees - recomputed.PastDueInterest - recomputed.CurrentInterest - recomputed.Principal)
