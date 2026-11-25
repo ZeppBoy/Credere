@@ -76,41 +76,40 @@ Breaking any of these fails `dotnet build`. The fix is never to disable the test
 
 ## 4. Internal layout of a module
 
-Each module project is self-contained and organized by feature slice internally:
+Each module project is self-contained and organized by feature slice. This excerpt shows the M2 layout for Origination and Servicing. The [Servicing module doc](modules/servicing.md#feature-slices-m2-initial-set) lists all of its feature slices. [ADR-0012](adr/0012-module-contract-file-layout.md) records the file placement and amends ADR-0008.
 
 ```
 Credere.Modules.Servicing/
-├── Application/
-│   ├── IServicingModule.cs                 Public contract (the only exposed type).
-│   ├── Commands/
-│   │   ├── DisburseLoan/
-│   │   │   ├── DisburseLoanCommand.cs
-│   │   │   ├── DisburseLoanHandler.cs
-│   │   │   └── DisburseLoanValidator.cs
-│   │   ├── RecordPayment/                  Payment allocation lives here, not in the aggregate.
-│   │   ├── ApplyAging/
-│   │   └── Payoff/
-│   ├── Queries/
-│   └── IntegrationEventHandlers/
-├── Domain/
-│   ├── Loan.cs                             Aggregate (internal).
+├── IServicingModule.cs                     Public facade in the module namespace.
+├── ServicingModule.cs                      DI entry point.
+├── Contracts/                             Public types shared by slices.
 │   ├── LoanId.cs
 │   ├── LoanState.cs
-│   ├── Events/                             Domain events (internal).
+│   └── PaymentAllocation.cs
+├── Application/
+│   ├── Commands/
+│   │   ├── Disburse/
+│   │   ├── RecordPayment/                  Command and result (public), handler and validator (internal).
+│   │   └── ApplyAging/
+│   └── Queries/
+│       ├── GetLoan/
+│       └── QuotePayoff/
+├── Domain/
+│   ├── Loan.cs                             Internal aggregate.
+│   ├── Events/                             Internal domain events.
 │   └── PaymentAllocationWaterfall.cs
 ├── Infrastructure/
-│   ├── ServicingDbContext.cs               schema="servicing"
+│   ├── ServicingDbContext.cs               Uses schema "servicing".
 │   ├── Migrations/
 │   ├── LoanRepository.cs
 │   └── OutboxBridge.cs
-├── IntegrationEvents/                      Published to other modules (public contracts).
-│   ├── LoanDisbursed.cs
-│   ├── PaymentRecorded.cs
-│   └── LoanAged.cs
-└── ServicingModuleExtensions.cs            services.AddServicingModule(config);
+└── IntegrationEvents/                      Public publisher-owned event records.
+    ├── LoanDisbursed.cs
+    ├── PaymentRecorded.cs
+    └── LoanAged.cs
 ```
 
-Feature folders are vertical slices *inside* the module: command + handler + validator + tests live together. Shared helpers emerge only after the third repetition.
+The facade namespace remains `Credere.Modules.Servicing` or `Credere.Modules.Origination`. Place shared public IDs, states, value types, views and module errors in `Contracts/` under the owning module. A feature slice under `Application/` holds its own command or query, result or view, handler and validator. The slice exposes the request and response types used by the facade. Tests for a slice live in the corresponding module test project. Each module publishes integration events from `IntegrationEvents/`. For cross-module subscriptions, the host owns the handler and calls the subscriber's facade (§6). Later modules define their subscriber-owned inputs and update their planned handler layouts in their own contract tasks ([ADR-0011](adr/0011-m2-module-contracts.md)).
 
 ## 5. Persistence
 
