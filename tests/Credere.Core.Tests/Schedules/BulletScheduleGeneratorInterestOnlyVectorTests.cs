@@ -1,10 +1,7 @@
-using Credere.Core.DayCounts;
 using Credere.Core.Rates;
 using Credere.Core.Schedules;
-using Credere.Core.ValueObjects;
-using NodaTime;
-using NodaTime.Text;
 using Xunit;
+using static Credere.Core.Tests.Schedules.BulletScheduleGeneratorVectorAssertions;
 
 namespace Credere.Core.Tests.Schedules;
 
@@ -221,58 +218,35 @@ public sealed class BulletScheduleGeneratorInterestOnlyVectorTests
 
     [Theory]
     [MemberData(nameof(Names))]
-    public void ReferenceSchedule_matchesTheSharedPeriodInterestAndRowContracts(string name)
+    public void Generate_referenceSchedule_matchesEveryField(string name)
     {
-        var vector = Vectors.Single(entry => entry.Name == name);
-        DayCountConvention convention = vector.Convention switch
-        {
-            "ACT/360" => new Act360(),
-            "ACT/365 Fixed" => new Act365Fixed(),
-            "ACT/ACT (ISDA)" => new ActActIsda(),
-            "30/360 ISDA" => new Thirty360Isda(),
-            "30E/360" => new ThirtyE360(),
-            _ => throw new ArgumentOutOfRangeException(nameof(name), vector.Convention, "Unknown reference convention."),
-        };
-        var rate = FixedRate.Create(new Percentage(vector.RatePercent), convention).Value;
-        var principal = Euro(vector.Principal);
-        var disbursement = Date(vector.Disbursement);
-        var firstPayment = Date(vector.FirstPayment);
-        var term = LoanTerm.FromMonths(vector.Months);
-        Assert.True(ScheduleRequest.Create(principal, rate, term, disbursement, firstPayment, vector.Frequency).IsSuccess);
+        var vector = Vectors.Single(entry => string.Equals(entry.Name, name, StringComparison.Ordinal));
+        var rows = RequireSchedule(Generator, ToRequest(vector)).Rows;
+        Assert.Equal(vector.Rows.Length, rows.Count);
 
-        var rowCount = SchedulePeriods.RowCount(term, vector.Frequency);
-        Assert.Equal(rowCount, vector.Rows.Length);
-        var periods = SchedulePeriods.Periods(disbursement, firstPayment, vector.Frequency, rowCount);
-        var calculator = new InterestCalculator();
-        var rows = new List<ScheduleRow>(rowCount);
-        var zero = Money.Zero(principal.Currency);
-        for (var index = 0; index < rowCount; index++)
+        for (var index = 0; index < rows.Count; index++)
         {
             var expected = vector.Rows[index];
-            var date = Date(expected.Date);
-            var opening = Euro(expected.Opening);
-            var interest = Euro(expected.Interest);
-            Assert.Equal(date, periods[index].End);
-            Assert.Equal(principal, opening);
-            Assert.Equal(interest, calculator.Calculate(rate, opening, periods[index].Start, periods[index].End));
-
-            rows.Add(new ScheduleRow(index + 1, date, opening, zero, interest,
-                Euro(expected.Principal), Euro(expected.Total), Euro(expected.Closing)));
+            var expectedRow = new ScheduleRow(index + 1, Date(expected.Date), Euro(expected.Opening),
+                Euro(0m), Euro(expected.Interest), Euro(expected.Principal), Euro(expected.Total), Euro(expected.Closing));
+            Assert.Equal(expectedRow, rows[index]);
         }
-
-        var schedule = AmortizationSchedule.Create(principal, rows);
-        Assert.True(schedule.IsSuccess, schedule.IsSuccess ? string.Empty : schedule.Error.ToString());
-        Assert.All(rows.Take(rowCount - 1), row =>
-        {
-            Assert.Equal(zero, row.PrincipalDue);
-            Assert.Equal(row.InterestDue, row.TotalPayment);
-        });
-        Assert.Equal(principal, rows[^1].PrincipalDue);
     }
 
-    private static LocalDate Date(string iso) => LocalDatePattern.Iso.Parse(iso).Value;
+    [Fact]
+    public Task Generate_canonicalLoan_matchesSnapshotFromApprovedVector()
+    {
+        var vector = Vectors.Single(entry => string.Equals(entry.Name, "Level30E360_24m", StringComparison.Ordinal));
+        var request = ToRequest(vector);
+        var rows = RequireSchedule(Generator, request).Rows;
+        return VerifySnapshot("InterestOnly.Level30E360_24m", request, rows);
+    }
 
-    private static Money Euro(decimal amount) => Money.Create(amount, "EUR").Value;
+    private static readonly BulletScheduleGenerator Generator = new(new InterestCalculator(), capitaliseInterest: false);
+
+    private static ScheduleRequest ToRequest(Vector vector) =>
+        Request(vector.Principal, vector.RatePercent, vector.Convention, vector.Months, vector.Frequency,
+            Date(vector.Disbursement), Date(vector.FirstPayment));
 
     private sealed record Vector(
         string Name,
