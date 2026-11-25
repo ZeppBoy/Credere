@@ -18,15 +18,21 @@ Unless a row says otherwise, there are no payments and the previous accrual date
 | IA-06 | Second due date, both periods unpaid | 2026-01-15 | 2026-03-15 | 0.00 | 83.34 | 83.34 | 41.67 | 41.67 |
 | IA-07 | Interest-only payment on 2026-01-17 | 2026-01-17 | 2026-01-20 | 2.78 | 6.94 | 4.16 | 4.16 | 0.00 |
 | IA-08 | Payment halves principal on 2026-01-17 | 2026-01-17 | 2026-01-20 | 2.78 | 4.86 | 2.08 | 2.08 | 0.00 |
-| IA-09 | Replay a prior date after IA-05 | 2026-02-16 | 2026-02-15 | 43.06 | 41.67 | None | 1.39 | 41.67 |
+| IA-09 | Replay a prior date after IA-05 | 2026-02-16 | 2026-02-15 | 43.06 | 41.67 (reference only) | None | 1.39 | 41.67 |
 | IA-10 | Partial interest paid on the first due date | 2026-02-15 | 2026-02-16 | 41.67 | 43.06 | 1.39 | 1.39 | 40.28 |
+| IA-13 | First accrual after activation on 2026-01-16 | 2026-01-15 | 2026-01-20 | 0.00 | 6.94 | 6.94 | 6.94 | 0.00 |
+| IA-14 | Payment on 2026-02-16 clears both interest balances and reduces principal by 1,000.00 | 2026-02-16 | 2026-02-20 | 43.06 | 48.06 | 5.00 | 5.00 | 0.00 |
+| IA-15 | First accrual at month-end on the 31st | 2026-01-15 | 2026-01-31 | 0.00 | 20.83 | 20.83 | 20.83 | 0.00 |
 
 - **IA-02 to IA-04.** Prior-day cumulative interest is 10,000 × 0.05 × 29/360 = 40.277… → 40.28. The last day's post is 41.67 − 40.28 = 1.39. The two runs together post 41.67, matching the single run in IA-03. Running on each calendar date from 2026-01-16 through 2026-02-15 also posts 41.67 in total. The daily increments are differences of rounded cumulative values.
 - **IA-05 and IA-06.** The second segment starts on the first due date. Its first day earns 10,000 × 0.05 × 1/360 = 1.388… → 1.39. By its due date both segments earn 41.67 each, for a total of 83.34. The first period's unpaid interest is past due only once the run date is after 2026-02-15. The second period's interest is still current on 2026-03-15.
 - **IA-07.** The payment is the accrued interest on 2026-01-17, 10,000 × 0.05 × 2/360 = 2.777… → 2.78. The principal remains 10,000.00. The same segment earns 10,000 × 0.05 × 5/360 = 6.944… → 6.94 by 2026-01-20. The increase and the remaining current interest are 6.94 − 2.78 = 4.16. Splitting the segment would round the last three days to 4.17.
 - **IA-08.** The payment is 5,002.78, consisting of the same 2.78 interest and half of the 10,000.00 principal. That closes the first segment. The new segment earns 5,000 × 0.05 × 3/360 = 2.083… → 2.08. Cumulative interest is 2.78 + 2.08 = 4.86.
-- **IA-09.** The run date precedes the posted date. Accrual returns a no-op with `Changed = false`, no ledger row, no event and the prior posted date and balances preserved.
+- **IA-09.** The run date precedes the posted date. The table gives `Accrued(2026-02-15)` for reference. The run returns a no-op with `Changed = false` before performing any calculation or writing a ledger row or event. It preserves the prior posted date and balances.
 - **IA-10.** The payment on 2026-02-15 is 1.39, the one-day interest from IA-05. It reduces current interest to 41.67 − 1.39 = 40.28. On the following day that remaining amount moves to past-due interest, and 1.39 starts accruing as current interest.
+- **IA-13.** D5 starts interest at disbursement, so the first run includes the day before activation. The five-day cumulative amount from IA-07 is 6.94.
+- **IA-14.** Immediately after IA-05, the payment is 41.67 past-due interest + 1.39 current interest + 1,000.00 principal = 1,043.06. The new segment earns 9,000 × 0.05 × 4/360 = 5.00. Cumulative interest is 43.06 + 5.00 = 48.06, and the ledger posts the 5.00 increase.
+- **IA-15.** Under [30E/360](../../../../docs/domain/day-counts.md), the 31st counts as day 30. The segment runs for 15 convention days and earns 10,000 × 0.05 × 15/360 = 20.833… → 20.83.
 
 ## Exact midpoint rounding
 
