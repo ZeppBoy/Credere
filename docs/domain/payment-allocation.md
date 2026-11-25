@@ -4,13 +4,11 @@
 
 Allocation lives in `src/Credere.Modules.Servicing/Domain/PaymentAllocationWaterfall.cs`. The Loan aggregate's `RecordPayment` command delegates to it; the aggregate itself does not contain allocation logic.
 
-## Authoritative sources
+## Source for the allocation rule
 
-- **ECB Statistical Classification of interest rates**, Annex II (payment allocation for consumer credit).
-- **EU Consumer Credit Directive 2008/48/EC**, Article 10 (information in credit agreement, including order of allocation).
-- **Industry practice** (retail banking): fees → past-due interest → current interest → principal.
+The [owner's D2 decision on M2-02](https://github.com/ZeppBoy/Credere/issues/69#issuecomment-7167387870) establishes the formal rules below as Credere's product rule. The reference cases are derived from those rules.
 
-Cite these in the XML comment on `PaymentAllocationWaterfall.cs` with the specific article / section references.
+[Directive (EU) 2023/2225, Article 21(1)(h)](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A32023L2225) requires consumer credit agreements to disclose the order of allocation to balances charged at different borrowing rates where appropriate. The priority and examples on this page come from the product rule.
 
 ## Waterfall (order of allocation)
 
@@ -21,7 +19,7 @@ For an incoming payment of amount `P` in currency `C`, the waterfall allocates i
 3. **Current period interest** — interest accrued in the current period (since the last scheduled payment date, up to the effective date of this payment). Reduce `CurrentInterest`.
 4. **Principal** — the remainder reduces `RemainingPrincipal`.
 
-Any residual after principal is zero is **returned to the payer** via a `PaymentExcess` domain event (and corresponding integration event). The aggregate does not keep overpayments on the loan.
+Any residual after all four balances reach zero is `Excess`. The aggregate records it for return in `PaymentRecorded` and emits the domain and integration events `PaymentExcessRecorded`. The loan keeps a zero balance. Treasury handles the return outside M2. See [overpayments in the loan lifecycle](loan-lifecycle.md#payments-and-accrual).
 
 ## Public contract
 
@@ -81,38 +79,42 @@ new_remaining_principal = remaining_principal - principal_allocated
 
 ## Invariants
 
-Enforced by `PaymentAllocation`'s constructor and verified by unit + property tests:
+The waterfall is responsible for these invariants:
 
 - All amounts are in the same currency as the payment.
 - Sum of allocated amounts + excess = payment amount.
 - Each allocated amount is non-negative.
-- Each new-balance is non-negative.
-- Sum of new balances + sum of allocated interest + principal = starting balances - interest accrued paid off. (See test matrix for exact algebraic form.)
+- Each remaining balance is non-negative.
+- For each balance, the allocated amount plus the remaining balance equals the starting balance.
 
 ## Business rules on top of the waterfall
 
-- A payment currency mismatch returns `Result<...>.Failure("Currency mismatch")`. No partial allocation attempted.
-- A zero or negative payment amount returns `Result<...>.Failure("Payment must be positive")`.
-- A payment to a loan in a terminal state (`WrittenOff`, `Restructured`, `Recovered`, `PaidOff`) returns `Result<...>.Failure("Loan is in terminal state X")`. The aggregate does not throw.
-- A payment that would exactly close the balance (principal = 0 after allocation, no other outstanding items) triggers a `LoanPaidOff` domain event in addition to `PaymentReceived`, and transitions the loan to `PaidOff`.
+- `RecordPayment` is available in `Active`, `InGrace` and `PastDue`. Other states return `InvalidStateTransition`.
+- A payment must be positive, match the loan's currency and have an effective date on or after `AccruedThroughDate`.
+- The aggregate accrues interest to the effective date before allocating the payment.
+- A payment that leaves all four balances at zero moves the loan to `PaidOff` and emits `PaymentReceived` and `LoanPaidOff`. A positive excess also emits `PaymentExcessRecorded`.
 
 ## Reference examples
 
-The test class carries at least five reference cases from the ECB Annex II illustrative examples, with explicit input balances, payment amount, and expected allocation. Example:
+These cases apply the [formal rules](#formal-rules) to the starting balances of the original 40-unit example. All amounts are in EUR. Balance and allocation tuples are ordered as fees, past-due interest, current interest, principal. The first four stages are fully covered at cumulative payments of 10, 35, 50 and 1050. The overpayment adds one cent, the smallest unit of [Money](value-objects.md).
 
-```
-Starting: fees=10, pastInt=25, currentInt=15, principal=1000
-Payment:  40
-
-Expected:
-  feeAlloc=10, pastIntAlloc=25, currentIntAlloc=5, principalAlloc=0, excess=0
-  new: fees=0, pastInt=0, currentInt=10, principal=1000
-```
+| Case | Payment | Starting balances | Expected allocation | Expected excess | Expected remaining balances |
+|---|---:|---|---|---:|---|
+| PA-01 · Partial fees | 5.00 | (10.00, 25.00, 15.00, 1000.00) | (5.00, 0.00, 0.00, 0.00) | 0.00 | (5.00, 25.00, 15.00, 1000.00) |
+| PA-02 · Exact fees | 10.00 | (10.00, 25.00, 15.00, 1000.00) | (10.00, 0.00, 0.00, 0.00) | 0.00 | (0.00, 25.00, 15.00, 1000.00) |
+| PA-03 · Partial past-due interest | 20.00 | (10.00, 25.00, 15.00, 1000.00) | (10.00, 10.00, 0.00, 0.00) | 0.00 | (0.00, 15.00, 15.00, 1000.00) |
+| PA-04 · Exact fees and past-due interest | 35.00 | (10.00, 25.00, 15.00, 1000.00) | (10.00, 25.00, 0.00, 0.00) | 0.00 | (0.00, 0.00, 15.00, 1000.00) |
+| PA-05 · Partial current interest | 40.00 | (10.00, 25.00, 15.00, 1000.00) | (10.00, 25.00, 5.00, 0.00) | 0.00 | (0.00, 0.00, 10.00, 1000.00) |
+| PA-06 · Exact fees and interest | 50.00 | (10.00, 25.00, 15.00, 1000.00) | (10.00, 25.00, 15.00, 0.00) | 0.00 | (0.00, 0.00, 0.00, 1000.00) |
+| PA-07 · Partial principal | 100.00 | (10.00, 25.00, 15.00, 1000.00) | (10.00, 25.00, 15.00, 50.00) | 0.00 | (0.00, 0.00, 0.00, 950.00) |
+| PA-08 · Exact payoff | 1050.00 | (10.00, 25.00, 15.00, 1000.00) | (10.00, 25.00, 15.00, 1000.00) | 0.00 | (0.00, 0.00, 0.00, 0.00) |
+| PA-09 · One cent of excess | 1050.01 | (10.00, 25.00, 15.00, 1000.00) | (10.00, 25.00, 15.00, 1000.00) | 0.01 | (0.00, 0.00, 0.00, 0.00) |
+| PA-10 · Empty priority buckets, using the balance after PA-06 | 0.01 | (0.00, 0.00, 0.00, 1000.00) | (0.00, 0.00, 0.00, 0.01) | 0.00 | (0.00, 0.00, 0.00, 999.99) |
 
 ## Property-based invariants (FsCheck.Xunit)
 
-- **Conservation.** `fee + pastInt + currentInt + principal + excess == payment` exactly (banker's rounding is applied per field; sum is identical to the input).
-- **Priority.** If any of `fees`, `pastInt`, `currentInt` remains positive after allocation, then principal must be unchanged. (Can't skip the waterfall.)
+- **Conservation.** `fee + pastInt + currentInt + principal + excess == payment` exactly. Inputs are already expressed in cents.
+- **Priority.** If any balance remains positive after allocation, all lower-priority allocations are zero.
 - **Excess only when fully paid.** `excess > 0 ⇒ all four new-balances == 0`.
 - **No excess when under-paying.** `payment < sum(fees, pastInt, currentInt, principal) ⇒ excess == 0`.
 
