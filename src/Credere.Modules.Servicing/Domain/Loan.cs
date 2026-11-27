@@ -20,26 +20,30 @@ internal sealed partial class Loan
     private InterestAccrual.Position _interest;
 
     private Loan(LoanDisbursed disbursed, FixedRate rate)
+        : this(LoanSnapshot.FromDisbursement(disbursed), rate)
     {
-        Id = disbursed.Context.LoanId;
-        DisbursementIntentId = disbursed.IntentId;
-        SourceReference = disbursed.SourceReference;
-        TermsVersion = disbursed.AcceptedTermsVersion;
-        Product = disbursed.Product;
-        Principal = disbursed.AcceptedTerms.Principal;
-        RemainingPrincipal = Principal;
-        Term = disbursed.AcceptedTerms.Term;
-        Rate = rate;
-        ProductTerms = disbursed.ProductTerms;
-        DisbursementDate = disbursed.Context.EffectiveDate;
-        FirstPaymentDate = disbursed.FirstPaymentDate;
-        Schedule = disbursed.Schedule;
+    }
 
-        var zero = Money.Zero(Principal.Currency);
-        _interest = new InterestAccrual.Position(DisbursementDate, DisbursementDate, zero, zero);
-        FeesOutstanding = zero;
-        State = LoanState.Disbursed;
-        Version = 1;
+    private Loan(LoanSnapshot snapshot, FixedRate rate)
+    {
+        Id = snapshot.Id;
+        DisbursementIntentId = snapshot.DisbursementIntentId;
+        SourceReference = snapshot.SourceReference;
+        TermsVersion = snapshot.TermsVersion;
+        Product = snapshot.Product;
+        Principal = snapshot.AcceptedTerms.Principal;
+        RemainingPrincipal = snapshot.RemainingPrincipal;
+        Term = snapshot.AcceptedTerms.Term;
+        Rate = rate;
+        ProductTerms = snapshot.ProductTerms;
+        DisbursementDate = snapshot.DisbursementDate;
+        FirstPaymentDate = snapshot.FirstPaymentDate;
+        Schedule = snapshot.Schedule;
+        _interest = snapshot.Interest;
+        FeesOutstanding = snapshot.FeesOutstanding;
+        State = snapshot.State;
+        DaysPastDue = snapshot.DaysPastDue;
+        Version = snapshot.Version;
     }
 
     internal LoanId Id { get; }
