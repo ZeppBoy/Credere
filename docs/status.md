@@ -1,6 +1,6 @@
 # Status
 
-**Last reviewed:** 2026-11-25 (M1 close-out)
+**Last reviewed:** 2026-11-27 (M2 progress)
 
 Statuses:
 - **Planned** — in the roadmap, not implemented.
@@ -28,17 +28,19 @@ Statuses:
 
 ## M2 — Origination + Servicing modules
 
+The solution suite passed all 1,201 tests on [`main` at `a0efde5`](https://github.com/ZeppBoy/Credere/commit/a0efde5ef1a6fac366e46ebf4ae50d0a58fff2b4), including seven architecture tests.
+
 | Area | Status |
 |---|---|
-| `Credere.Modules.Origination` skeleton | Implemented |
-| `Credere.Modules.Servicing` skeleton | Implemented |
-| LoanApplication aggregate + underwriting | Planned |
-| Loan aggregate + state machine | Planned |
-| Payment allocation waterfall | Planned |
-| Aging transitions | Planned |
-| SQL Server persistence + migrations | Planned |
-| Append-only history tables | Planned |
-| Per-handler idempotency receipts | Planned |
+| Origination and Servicing facade interfaces, commands, queries, and versioned integration events | Implemented ([M2-C2](https://github.com/ZeppBoy/Credere/pull/84)) |
+| EF Core migration tooling and persistence test project wiring | Implemented ([M2-C3](https://github.com/ZeppBoy/Credere/pull/86)) |
+| `LoanApplication` aggregate, including underwriting decisions, versioned terms acceptance, withdrawal, and history replay | Verified ([M2-01](https://github.com/ZeppBoy/Credere/pull/90)) |
+| Payment allocation waterfall | Verified against the approved reference cases and property tests ([M2-02](https://github.com/ZeppBoy/Credere/pull/88)) |
+| Interest accrual and dated payoff calculations | Verified against the approved reference cases and property tests ([M2-03](https://github.com/ZeppBoy/Credere/pull/89)) |
+| `Loan` aggregate and lifecycle, including disbursement, activation, aging, payments, payoff, terminal transitions, and history replay | Verified ([M2-04](https://github.com/ZeppBoy/Credere/pull/96)) |
+| SQL Server schemas, migrations, append-only history, outbox, and per-handler receipts | Planned ([M2-05](https://github.com/ZeppBoy/Credere/issues/72), [M2-06](https://github.com/ZeppBoy/Credere/issues/73)) |
+| Facade implementations and the persisted disbursement handoff | Planned ([M2-07](https://github.com/ZeppBoy/Credere/issues/74), [M2-08](https://github.com/ZeppBoy/Credere/issues/75), [M2-09](https://github.com/ZeppBoy/Credere/issues/76)) |
+| End-to-end SQL Server verification from application submission through payoff | Planned ([M2-09](https://github.com/ZeppBoy/Credere/issues/76)) |
 
 ## M3 — Documents module + Banker UI
 
