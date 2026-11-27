@@ -96,6 +96,18 @@ public sealed class OriginationJsonTests
     }
 
     [Fact]
+    public void LocalDate_InAnotherCalendar_IsWrittenAsTheSameDayInTheIsoCalendar()
+    {
+        var julian = new LocalDate(1990, 2, 12, CalendarSystem.Julian);
+
+        var json = JsonSerializer.Serialize(julian, OriginationJson.Options);
+        var restored = JsonSerializer.Deserialize<LocalDate>(json, OriginationJson.Options);
+
+        json.Should().Be("\"1990-02-25\"");
+        restored.Should().Be(new LocalDate(1990, 2, 25));
+    }
+
+    [Fact]
     public void Instant_KeepsNanoseconds()
     {
         var instant = Instant.FromUtc(2026, 11, 25, 9, 0).PlusNanoseconds(123_456_789);

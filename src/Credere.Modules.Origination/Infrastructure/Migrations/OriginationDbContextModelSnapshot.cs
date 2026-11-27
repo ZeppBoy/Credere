@@ -153,13 +153,15 @@ namespace Credere.Modules.Origination.Infrastructure.Migrations
                     b.Property<DateOnly>("DateOfBirth")
                         .HasColumnType("date");
 
-                    b.Property<decimal?>("DecidedNominalRate")
-                        .HasPrecision(38, 28)
-                        .HasColumnType("decimal(38,28)");
+                    b.Property<string>("DecidedNominalRate")
+                        .HasMaxLength(32)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(32)");
 
-                    b.Property<decimal?>("DecidedPrincipalAmount")
-                        .HasPrecision(38, 2)
-                        .HasColumnType("decimal(38,2)");
+                    b.Property<string>("DecidedPrincipalAmount")
+                        .HasMaxLength(32)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(32)");
 
                     b.Property<string>("DecidedPrincipalCurrency")
                         .HasMaxLength(3)
@@ -185,9 +187,11 @@ namespace Credere.Modules.Origination.Infrastructure.Migrations
                     b.Property<string>("LastRationale")
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<decimal>("MonthlyDebtPaymentsAmount")
-                        .HasPrecision(38, 2)
-                        .HasColumnType("decimal(38,2)");
+                    b.Property<string>("MonthlyDebtPaymentsAmount")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(32)");
 
                     b.Property<string>("MonthlyDebtPaymentsCurrency")
                         .IsRequired()
@@ -196,9 +200,11 @@ namespace Credere.Modules.Origination.Infrastructure.Migrations
                         .HasColumnType("char(3)")
                         .IsFixedLength();
 
-                    b.Property<decimal>("MonthlyIncomeAmount")
-                        .HasPrecision(38, 2)
-                        .HasColumnType("decimal(38,2)");
+                    b.Property<string>("MonthlyIncomeAmount")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(32)");
 
                     b.Property<string>("MonthlyIncomeCurrency")
                         .IsRequired()
@@ -213,9 +219,11 @@ namespace Credere.Modules.Origination.Infrastructure.Migrations
                         .IsUnicode(false)
                         .HasColumnType("varchar(32)");
 
-                    b.Property<decimal>("RequestedPrincipalAmount")
-                        .HasPrecision(38, 2)
-                        .HasColumnType("decimal(38,2)");
+                    b.Property<string>("RequestedPrincipalAmount")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(32)");
 
                     b.Property<string>("RequestedPrincipalCurrency")
                         .IsRequired()

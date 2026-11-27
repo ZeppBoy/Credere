@@ -1,7 +1,6 @@
 using Credere.Modules.Origination.Contracts;
 using Credere.Modules.Origination.Infrastructure.Converters;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using NodaTime;
 
 namespace Credere.Modules.Origination.Infrastructure;
@@ -13,10 +12,6 @@ namespace Credere.Modules.Origination.Infrastructure;
 internal sealed class OriginationDbContext : DbContext
 {
     private const int CurrencyLength = 3;
-    private const int MoneyPrecision = 38;
-    private const int MoneyScale = 2;
-    private const int PercentagePrecision = 38;
-    private const int PercentageScale = 28;
 
     /// <summary>Initializes a new instance of the <see cref="OriginationDbContext"/> class.</summary>
     /// <param name="options">The options, with the connection and the migrations history table.</param>
@@ -47,18 +42,25 @@ internal sealed class OriginationDbContext : DbContext
         return Set<CommandReceipt>(OriginationSchema.ReceiptTable(handler));
     }
 
-    /// <summary>Applies the module's explicit type mappings: NodaTime types and the typed application id.</summary>
+    /// <summary>
+    /// Applies the module's explicit type mappings: NodaTime types, the typed application id, and exact text for every
+    /// decimal (see <see cref="DecimalTextConverter"/> for why no decimal column has a precision).
+    /// </summary>
     /// <param name="configurationBuilder">The convention builder.</param>
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
         ArgumentNullException.ThrowIfNull(configurationBuilder);
 
+        configurationBuilder.Properties<decimal>()
+            .HaveConversion<DecimalTextConverter>()
+            .HaveMaxLength(DecimalTextConverter.MaxLength)
+            .AreUnicode(false);
         configurationBuilder.Properties<Instant>().HaveConversion<InstantConverter>().HaveColumnType("datetime2(7)");
         configurationBuilder.Properties<LocalDate>().HaveConversion<LocalDateConverter>().HaveColumnType("date");
         configurationBuilder.Properties<LoanApplicationId>().HaveConversion<LoanApplicationIdConverter>();
     }
 
-    /// <summary>Maps the tables, keys, precisions and indexes.</summary>
+    /// <summary>Maps the tables, keys, column sizes and indexes.</summary>
     /// <param name="modelBuilder">The model builder.</param>
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -74,15 +76,10 @@ internal sealed class OriginationDbContext : DbContext
             entity.Property(row => row.FullName).IsRequired();
             entity.Property(row => row.CountryCode).HasMaxLength(2).IsFixedLength().IsUnicode(false);
             entity.Property(row => row.ProductCode).HasMaxLength(32).IsUnicode(false);
-            ConfigureMoney(entity.Property(row => row.MonthlyIncomeAmount), entity.Property(row => row.MonthlyIncomeCurrency));
-            ConfigureMoney(
-                entity.Property(row => row.MonthlyDebtPaymentsAmount),
-                entity.Property(row => row.MonthlyDebtPaymentsCurrency));
-            ConfigureMoney(
-                entity.Property(row => row.RequestedPrincipalAmount),
-                entity.Property(row => row.RequestedPrincipalCurrency));
-            ConfigureMoney(entity.Property(row => row.DecidedPrincipalAmount), entity.Property(row => row.DecidedPrincipalCurrency));
-            entity.Property(row => row.DecidedNominalRate).HasPrecision(PercentagePrecision, PercentageScale);
+            entity.Property(row => row.MonthlyIncomeCurrency).HasMaxLength(CurrencyLength).IsFixedLength().IsUnicode(false);
+            entity.Property(row => row.MonthlyDebtPaymentsCurrency).HasMaxLength(CurrencyLength).IsFixedLength().IsUnicode(false);
+            entity.Property(row => row.RequestedPrincipalCurrency).HasMaxLength(CurrencyLength).IsFixedLength().IsUnicode(false);
+            entity.Property(row => row.DecidedPrincipalCurrency).HasMaxLength(CurrencyLength).IsFixedLength().IsUnicode(false);
             entity.Property(row => row.State).HasConversion<string>().HasMaxLength(32).IsUnicode(false);
             entity.Property(row => row.LastOutcome).HasConversion<string>().HasMaxLength(32).IsUnicode(false);
             entity.Property(row => row.RowVersion).IsRowVersion();
@@ -127,15 +124,4 @@ internal sealed class OriginationDbContext : DbContext
         }
     }
 
-    private static void ConfigureMoney(PropertyBuilder<decimal> amount, PropertyBuilder<string> currency)
-    {
-        amount.HasPrecision(MoneyPrecision, MoneyScale);
-        currency.HasMaxLength(CurrencyLength).IsFixedLength().IsUnicode(false);
-    }
-
-    private static void ConfigureMoney(PropertyBuilder<decimal?> amount, PropertyBuilder<string?> currency)
-    {
-        amount.HasPrecision(MoneyPrecision, MoneyScale);
-        currency.HasMaxLength(CurrencyLength).IsFixedLength().IsUnicode(false);
-    }
 }

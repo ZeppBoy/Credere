@@ -47,16 +47,26 @@ public sealed class OriginationMigrationTests(SqlServerFixture fixture)
     }
 
     [Theory]
-    [InlineData("MonthlyIncomeAmount", 38, 2)]
-    [InlineData("RequestedPrincipalAmount", 38, 2)]
-    [InlineData("DecidedPrincipalAmount", 38, 2)]
-    [InlineData("DecidedNominalRate", 38, 28)]
-    public async Task Migrations_GiveEveryDecimalColumnItsPrecision(string column, int precision, int scale)
+    [InlineData("MonthlyIncomeAmount")]
+    [InlineData("MonthlyDebtPaymentsAmount")]
+    [InlineData("RequestedPrincipalAmount")]
+    [InlineData("DecidedPrincipalAmount")]
+    [InlineData("DecidedNominalRate")]
+    public async Task Migrations_StoreEveryDecimalAsVarchar32ExactText(string column)
     {
-        var found = await QueryAsync<(int, int)>(
-            $"SELECT CAST(NUMERIC_PRECISION AS int), CAST(NUMERIC_SCALE AS int) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'origination' AND TABLE_NAME = 'LoanApplications' AND COLUMN_NAME = '{column}'");
+        var found = await QueryAsync<(string, int)>(
+            $"SELECT DATA_TYPE, CAST(CHARACTER_MAXIMUM_LENGTH AS int) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'origination' AND TABLE_NAME = 'LoanApplications' AND COLUMN_NAME = '{column}'");
 
-        found.Should().ContainSingle().Which.Should().Be((precision, scale));
+        found.Should().ContainSingle().Which.Should().Be(("varchar", 32));
+    }
+
+    [Fact]
+    public async Task Migrations_LeaveNoDecimalColumnInTheSchema()
+    {
+        var found = await QueryAsync<string>(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'origination' AND DATA_TYPE IN ('decimal', 'numeric', 'money', 'smallmoney', 'float', 'real')");
+
+        found.Should().BeEmpty();
     }
 
     [Theory]

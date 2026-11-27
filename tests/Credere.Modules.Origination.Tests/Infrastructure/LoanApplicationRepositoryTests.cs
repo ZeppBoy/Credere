@@ -90,22 +90,94 @@ public sealed class LoanApplicationRepositoryTests(SqlServerFixture fixture)
         history.Select(row => row.Type).Should().Equal("ApplicationSubmitted", "ApplicationApproved", "ApplicationAccepted");
     }
 
-    [Fact]
-    public async Task Commit_AmountsAndRateAtTheLimitsOfTheColumns_ComeBackUnchanged()
+    // The rates the domain accepts run from 0 to 100 with any number of fractional digits a decimal holds.
+    public static TheoryData<decimal> AcceptedRates() => new()
+    {
+        0m,
+        5.25m,
+        10m,
+        100m,
+        7.1234567890123456789012345678m,
+        99.99999999999999999999999999m,
+    };
+
+    // Amounts from one cent to decimal.MaxValue, including whole numbers and the scale-2 values Money produces.
+    public static TheoryData<decimal> AcceptedAmounts() => new()
+    {
+        0.01m,
+        100m,
+        100.50m,
+        12_345_678_901_234.56m,
+        decimal.MaxValue,
+    };
+
+    [Theory]
+    [MemberData(nameof(AcceptedRates))]
+    public async Task Commit_ApprovalAtAnyAcceptedRate_ComesBackUnchangedFromTheTableAndFromTheHistory(decimal rate)
     {
         var id = NewId();
-        var rate = 7.1234567890123456789012345678m;
-        var application = NewSubmitted(id, at: SubmittedAt.PlusTicks(1234567), terms: new RequestedTerms(Eur(12_345_678_901_234.56m), RequestedTerms().Term));
-        Approve(application, FinalTerms(principal: 98_765_432_109_876.54m, ratePercent: rate));
+        var application = NewSubmitted(id);
+        Approve(application, FinalTerms(ratePercent: rate));
         await SaveNewAsync(application);
 
         await using var unit = new UnitOfWork(fixture, _clock);
         var view = await unit.Reader.GetAsync(id, CancellationToken.None);
+        var replayed = await unit.Repository.FindAsync(id, CancellationToken.None);
 
-        view!.RequestedTerms.Principal.Should().Be(Eur(12_345_678_901_234.56m));
-        view.DecidedTerms!.Principal.Should().Be(Eur(98_765_432_109_876.54m));
-        view.DecidedTerms.NominalRate.Value.Should().Be(rate);
-        view.SubmittedAt.Should().Be(SubmittedAt.PlusTicks(1234567));
+        view!.DecidedTerms!.NominalRate.Value.Should().Be(rate);
+        replayed!.DecidedTerms!.NominalRate.Value.Should().Be(rate);
+    }
+
+    [Theory]
+    [MemberData(nameof(AcceptedAmounts))]
+    public async Task Commit_AnyAcceptedAmount_ComesBackUnchangedFromTheTableAndFromTheHistory(decimal amount)
+    {
+        var id = NewId();
+        var applicant = Applicant() with { MonthlyIncome = Eur(amount), MonthlyDebtPayments = Eur(amount) };
+        var application = NewSubmitted(id, terms: new RequestedTerms(Eur(amount), RequestedTerms().Term), applicant: applicant);
+        Approve(application, FinalTerms(principal: amount));
+        await SaveNewAsync(application);
+
+        await using var unit = new UnitOfWork(fixture, _clock);
+        var view = await unit.Reader.GetAsync(id, CancellationToken.None);
+        var replayed = await unit.Repository.FindAsync(id, CancellationToken.None);
+
+        view!.RequestedTerms.Principal.Should().Be(Eur(amount));
+        view.DecidedTerms!.Principal.Should().Be(Eur(amount));
+        view.Applicant.MonthlyIncome.Should().Be(Eur(amount));
+        view.Applicant.MonthlyDebtPayments.Should().Be(Eur(amount));
+        replayed!.DecidedTerms!.Principal.Should().Be(Eur(amount));
+        replayed.Applicant.Should().Be(applicant);
+    }
+
+    [Fact]
+    public async Task Commit_SubmissionInstantFinerThanASecond_ComesBackUnchanged()
+    {
+        var id = NewId();
+        var at = SubmittedAt.PlusTicks(1234567);
+        await SaveNewAsync(NewSubmitted(id, at: at));
+
+        await using var unit = new UnitOfWork(fixture, _clock);
+
+        (await unit.Reader.GetAsync(id, CancellationToken.None))!.SubmittedAt.Should().Be(at);
+    }
+
+    [Fact]
+    public async Task Commit_BirthDateInAnotherCalendar_IsStoredAsTheSameDay()
+    {
+        var id = NewId();
+        var julian = new LocalDate(1990, 2, 12, CalendarSystem.Julian);
+        var sameDayInIso = new LocalDate(1990, 2, 25);
+        var application = NewSubmitted(id, applicant: Applicant() with { DateOfBirth = julian });
+        await SaveNewAsync(application);
+
+        await using var unit = new UnitOfWork(fixture, _clock);
+        var view = await unit.Reader.GetAsync(id, CancellationToken.None);
+        var replayed = await unit.Repository.FindAsync(id, CancellationToken.None);
+
+        julian.WithCalendar(CalendarSystem.Iso).Should().Be(sameDayInIso, "the test must name the same day twice");
+        view!.Applicant.DateOfBirth.Should().Be(sameDayInIso);
+        replayed!.Applicant.DateOfBirth.Should().Be(sameDayInIso);
     }
 
     [Fact]
@@ -306,6 +378,25 @@ public sealed class LoanApplicationRepositoryTests(SqlServerFixture fixture)
         var act = () => unit.Repository.FindAsync(id, CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*no upcaster*");
+    }
+
+    [Fact]
+    public async Task FindAsync_PayloadNamingAnotherApplication_Throws()
+    {
+        var id = NewId();
+        var other = NewId();
+        await SaveNewAsync(NewSubmitted(id));
+        await using (var db = fixture.CreateContext())
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE origination.LoanApplicationEvents SET PayloadJson = REPLACE(PayloadJson, {id.Value.ToString()}, {other.Value.ToString()}) WHERE StreamId = {id.Value}");
+        }
+
+        await using var unit = new UnitOfWork(fixture, _clock);
+        var act = () => unit.Repository.FindAsync(id, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage($"*holds ApplicationSubmitted for application {other.Value}*");
     }
 
     [Fact]

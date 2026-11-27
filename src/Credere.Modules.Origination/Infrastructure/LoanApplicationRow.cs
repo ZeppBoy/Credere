@@ -9,8 +9,9 @@ namespace Credere.Modules.Origination.Infrastructure;
 /// (ADR-0004).
 /// </summary>
 /// <remarks>
-/// Each <c>Money</c> is a decimal amount and a currency column. Amounts are <c>decimal(38,2)</c> and the nominal rate
-/// is <c>decimal(38,28)</c>, wide enough that no value the domain accepts is rounded on its way to the table.
+/// Each <c>Money</c> is an amount column and a currency column. Every decimal, the amounts and the nominal rate, is
+/// stored as its exact text (<see cref="Converters.DecimalTextConverter"/>), so no value the domain accepts is rounded
+/// or rejected on its way to the table.
 /// </remarks>
 internal sealed class LoanApplicationRow
 {

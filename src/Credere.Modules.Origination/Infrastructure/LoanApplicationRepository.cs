@@ -83,8 +83,20 @@ internal sealed class LoanApplicationRepository
                 $"The state row of application {id.Value} is at stream version {row.StreamVersion}, but its history holds {history.Count} events.");
         }
 
-        return LoanApplication.Rehydrate(
-            history.Select(item => LoanApplicationEventSerializer.Deserialize(item.Type, item.EventVersion, item.PayloadJson)));
+        var events = history
+            .Select(item => LoanApplicationEventSerializer.Deserialize(item.Type, item.EventVersion, item.PayloadJson))
+            .ToList();
+
+        // The aggregate takes its id from the first event, so a payload that names another application would load as
+        // that application. Every payload must name the stream it is stored in.
+        var foreign = events.FirstOrDefault(@event => @event.ApplicationId != id);
+        if (foreign is not null)
+        {
+            throw new InvalidOperationException(
+                $"The history of application {id.Value} holds {foreign.GetType().Name} for application {foreign.ApplicationId.Value}.");
+        }
+
+        return LoanApplication.Rehydrate(events);
     }
 
     /// <summary>Stages a newly submitted application: its state row and one history row for each uncommitted event.</summary>

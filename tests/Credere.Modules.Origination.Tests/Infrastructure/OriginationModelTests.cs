@@ -1,4 +1,5 @@
 using Credere.Modules.Origination.Infrastructure;
+using Credere.Modules.Origination.Infrastructure.Converters;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -45,14 +46,15 @@ public sealed class OriginationModelTests
     }
 
     [Fact]
-    public void Model_EveryDecimalColumnHasAnExplicitPrecision()
+    public void Model_EveryDecimalIsStoredAsExactText_BecauseNoDecimalColumnHoldsEveryAcceptedValue()
     {
         var decimals = BuildModel().GetEntityTypes()
             .SelectMany(entity => entity.GetProperties())
             .Where(property => (Nullable.GetUnderlyingType(property.ClrType) ?? property.ClrType) == typeof(decimal))
             .ToList();
 
-        decimals.Should().NotBeEmpty().And.OnlyContain(property => property.GetPrecision() != null && property.GetScale() != null);
+        decimals.Should().HaveCount(5, "three amounts, the decided principal and the decided rate")
+            .And.OnlyContain(property => property.GetValueConverter() is DecimalTextConverter && property.GetMaxLength() == 32);
     }
 
     [Fact]
