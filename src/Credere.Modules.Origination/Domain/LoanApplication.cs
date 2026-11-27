@@ -30,12 +30,18 @@ internal sealed class LoanApplication
     private readonly List<LoanApplicationEvent> _uncommittedEvents = [];
 
     private LoanApplication(ApplicationSubmitted submitted)
+        : this(submitted.ApplicationId, submitted.Applicant, submitted.Product, submitted.Terms, submitted.OccurredAt)
     {
-        Id = submitted.ApplicationId;
-        Applicant = submitted.Applicant;
-        Product = submitted.Product;
-        Terms = submitted.Terms;
-        SubmittedAt = submitted.OccurredAt;
+    }
+
+    private LoanApplication(
+        LoanApplicationId id, ApplicantSnapshot applicant, ProductCode product, RequestedTerms terms, Instant submittedAt)
+    {
+        Id = id;
+        Applicant = applicant;
+        Product = product;
+        Terms = terms;
+        SubmittedAt = submittedAt;
         State = LoanApplicationState.Submitted;
         Version = 1;
     }
@@ -102,6 +108,47 @@ internal sealed class LoanApplication
         var application = new LoanApplication(submitted);
         application._uncommittedEvents.Add(submitted);
         return Result<LoanApplication, DomainError>.Success(application);
+    }
+
+    /// <summary>Restores committed current state for command handling without loading the audit history.</summary>
+    /// <param name="snapshot">The state and stream version from the same persisted row.</param>
+    /// <returns>The application with an empty list of uncommitted events.</returns>
+    /// <exception cref="InvalidOperationException">The stored lifecycle state, decision, terms or version are inconsistent.</exception>
+    internal static LoanApplication Restore(LoanApplicationSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        var outcome = snapshot.Decision?.Outcome;
+        // An optional human review adds one event before a decision from UnderReview.
+        var (minimumVersion, maximumVersion) = (snapshot.State, outcome) switch
+        {
+            (LoanApplicationState.Submitted, null) => (1, 1),
+            (LoanApplicationState.UnderReview, DecisionOutcome.HumanReview) => (2, 2),
+            (LoanApplicationState.Approved, DecisionOutcome.Approve) => (2, 3),
+            (LoanApplicationState.AcceptedByBorrower, DecisionOutcome.Approve) => (3, 4),
+            (LoanApplicationState.Declined, DecisionOutcome.Decline) => (2, 3),
+            (LoanApplicationState.Withdrawn, null) => (2, 2),
+            (LoanApplicationState.Withdrawn, DecisionOutcome.HumanReview) => (3, 3),
+            (LoanApplicationState.Withdrawn, DecisionOutcome.Approve) => (3, 4),
+            _ => throw new InvalidOperationException("The stored application state and underwriting decision are inconsistent."),
+        };
+
+        var approved = outcome == DecisionOutcome.Approve;
+        if (snapshot.Version < minimumVersion || snapshot.Version > maximumVersion
+            || snapshot.TermsVersion != (approved ? 1 : 0)
+            || approved != (snapshot.DecidedTerms is not null))
+        {
+            throw new InvalidOperationException("The stored application version or decided terms do not match its state.");
+        }
+
+        return new LoanApplication(snapshot.Id, snapshot.Applicant, snapshot.Product, snapshot.Terms, snapshot.SubmittedAt)
+        {
+            State = snapshot.State,
+            Decision = snapshot.Decision,
+            DecidedTerms = snapshot.DecidedTerms,
+            TermsVersion = snapshot.TermsVersion,
+            Version = snapshot.Version,
+        };
     }
 
     /// <summary>Rebuilds an application from its history, with no uncommitted events.</summary>
