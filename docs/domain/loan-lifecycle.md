@@ -1,8 +1,8 @@
 # Loan lifecycle
 
-**Status:** Planned (M2). The contract below was written in M2-C1 from owner decisions D3 and D5 ([ADR-0011](../adr/0011-m2-module-contracts.md)); it is implemented by M2-04.
+**Status:** Implemented (M2-04). The transition contract comes from owner decisions D3 and D5. [ADR-0011](../adr/0011-m2-module-contracts.md)
 
-The Servicing module's `Loan` aggregate moves through a fixed state machine. Every state transition emits a domain event and (via the outbox) an integration event. Invalid transitions return `Result<T, DomainError>`; they do not throw.
+The Servicing module's `Loan` aggregate emits a domain event for each state transition. The integration event column specifies the outbox publications planned for M2-08. Invalid transitions return a failed `Result<T, DomainError>`.
 
 ## States
 
@@ -26,7 +26,7 @@ stateDiagram-v2
     PastDue --> Defaulted: ApplyAging, d >= defaultThreshold
 
     Defaulted --> Defaulted: ApplyAging, days changed
-    Defaulted --> WrittenOff: WriteOff
+    Defaulted --> WrittenOff: WriteOff, date on or after accrued-through date
     Defaulted --> Restructured: Restructure
     Defaulted --> Recovered: Recover
 
@@ -51,7 +51,7 @@ A payment that leaves a balance, an accrual, and an aging run that changes nothi
 
 ## Transition table
 
-Every row below is implemented and tested. The table and the diagram above are one specification: a change to either changes both.
+The table and diagram specify the state transitions. The domain event column lists payment and lifecycle events. A posting from implicit accrual precedes those events when the accrual date advances.
 
 `d` is the `DaysPastDue` the caller supplies. `pd` is `pastDueThreshold` and `def` is `defaultThreshold`.
 
@@ -81,7 +81,7 @@ Every row below is implemented and tested. The table and the diagram above are o
 | Active / InGrace / PastDue | RecordPayment | amount > 0, currency matches, `EffectiveDate` ≥ `AccruedThroughDate`, balance remains after allocation | same | `PaymentReceived` (not a transition; excess is zero) | `PaymentRecorded` |
 | Active / InGrace / PastDue | RecordPayment | as above, and allocation leaves all four balances at zero (excess may be positive) | PaidOff | `PaymentReceived`, `PaymentExcessRecorded` if excess > 0, `LoanPaidOff` | `PaymentRecorded`, `PaymentExcessRecorded` if excess > 0, `LoanPaidOff` |
 | Active / InGrace / PastDue | ExecutePayoff | the quote total still equals the recomputed total for the same payoff date | PaidOff | `PaymentReceived`, `LoanPaidOff` | `PaymentRecorded`, `LoanPaidOff` |
-| Defaulted | WriteOff | reason non-empty | WrittenOff | `LoanWrittenOff` | `LoanWrittenOff` |
+| Defaulted | WriteOff | reason non-empty and `BusinessDate` ≥ `AccruedThroughDate` | WrittenOff | `LoanWrittenOff` | `LoanWrittenOff` |
 | Defaulted | Restructure | plan non-empty | Restructured | `LoanRestructured` | `LoanRestructured` |
 | Defaulted | Recover | method non-empty, amount ≥ 0 | Recovered | `LoanRecovered` | `LoanRecovered` |
 
@@ -96,7 +96,7 @@ Any other `(state, command)` pair returns `Result<Unit, DomainError>.Failure(new
 
 - **Transition.** The state changes. One domain event, one history row, one `LoanAged` integration event.
 - **Days update.** The state is the same and `DaysPastDue` changes. This is *not* a state transition, but it is a recorded change: one `LoanPastDueDaysUpdated` domain event, one history row, one `LoanAged` (its payload names the previous and new state, so a consumer can tell the two apart).
-- **No-op.** The state and `DaysPastDue` are both unchanged. No domain event, no history row, no outbox row. The command still succeeds, returns `AgingResult { Changed = false }`, and stores its idempotency receipt in the same transaction, so a retry returns the same result.
+- **No-op.** The state and `DaysPastDue` are both unchanged. The aggregate returns `AgingResult { Changed = false }` and emits no event. The M2-08 handler stores a receipt so a retry returns the same result.
 
 "Every transition emits exactly one domain event" (the Servicing invariant and the roadmap acceptance) holds because a no-op is not a transition. An active loan with zero days past due is the common no-op.
 
@@ -107,8 +107,9 @@ These rules are the owner's decision D3 ([ADR-0011](../adr/0011-m2-module-contra
 - **Eligibility.** Ordinary payments are accepted in `Active`, `InGrace` and `PastDue`. Payments on a `Defaulted` loan are **not decided** (see [Not decided](#not-decided)); until then they return `InvalidStateTransition`.
 - **Overpayment.** A positive overpayment on an eligible loan is allowed. The payment is allocated through `PaymentAllocationWaterfall` ([payment-allocation.md](payment-allocation.md)) after interest has been accrued to the payment's effective date. Whatever the waterfall cannot place is the `Excess`.
 - **Excess implies payoff.** `Excess > 0` only happens when all four balances reach zero, so such a payment always moves the loan to `PaidOff`. The excess is recorded for return: it is in the `PaymentRecorded` payload and in its own `PaymentExcessRecorded` event, and the loan keeps no credit balance. The return of the money to the payer is a treasury process outside M2.
-- **Backdating.** `EffectiveDate` earlier than `AccruedThroughDate` is a `ValidationError` on `effectiveDate`. Replaying history is not supported in M2.
-- **Accrual and payment order.** Interest through the effective date is accrued first, then the payment is allocated. [servicing.md](../modules/servicing.md#interest-accrual-and-posting) defines the accrual.
+- **Backdating.** `EffectiveDate` earlier than `AccruedThroughDate` is a `ValidationError` on `effectiveDate`.
+- **Accrual order.** `RecordPayment`, `ExecutePayoff`, and `WriteOff` accrue through their effective date before recording the outcome. If the date advances accrual, an internal `InterestAccrued` event comes first and supplies the ledger posting. Eligibility, inputs, and payoff quote revalidation must succeed before the events are appended. [Servicing accrual rules](../modules/servicing.md#interest-accrual-and-posting)
+- **Write-off.** A date before `AccruedThroughDate` returns `ValidationError` on `businessDate`. The write-off reports the full outstanding balance after accrual, including principal, both interest balances, and fees. The terminal record retains those components for audit. [Owner decision on M2-04](https://github.com/ZeppBoy/Credere/issues/71#issuecomment-7216076988)
 - **Fees.** M2 posts no fees, so `FeesOutstanding` is zero on every M2 loan. The field exists so that the waterfall is the full waterfall from the first slice.
 
 ## Thresholds
