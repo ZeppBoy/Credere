@@ -95,6 +95,86 @@ public sealed class LoanReplayTests
     }
 
     [Fact]
+    public void Rehydrate_PaymentWithDifferentAllocation_Throws()
+    {
+        var loan = CreateLoan(LoanState.Active);
+        _ = loan.RecordPayment(Pay(Euro(5002.78m), Date("2026-01-17")), SamplePaymentId, Calculator).Value; // IA-08.
+        var history = loan.UncommittedEvents.ToArray();
+        var payment = (PaymentReceived)history[^1];
+        history[^1] = payment with { Allocation = payment.Allocation with { NewRemainingPrincipal = Principal } };
+
+        var replay = () => Loan.Rehydrate(history);
+
+        replay.Should().Throw<InvalidOperationException>();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Rehydrate_AccrualWithInvalidPeriodOrSegment_Throws(bool invalidPeriod)
+    {
+        var loan = CreateLoan(LoanState.Active);
+        _ = loan.AccrueInterest(new AccrueInterest(Guid.NewGuid(), Id, FirstDueDate, CorrelationId), Calculator).Value;
+        var history = loan.UncommittedEvents.ToArray();
+        var accrual = (InterestAccrued)history[^1];
+        history[^1] = invalidPeriod
+            ? accrual with { PeriodStart = ActivatedOn }
+            : accrual with { SegmentStart = FirstDueDate.PlusDays(1) };
+
+        var replay = () => Loan.Rehydrate(history);
+
+        replay.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Rehydrate_AgingFromDifferentState_Throws()
+    {
+        var loan = CreateLoan(LoanState.PastDue);
+        var history = loan.UncommittedEvents.ToArray();
+        var aging = (LoanBecamePastDue)history[^1];
+        history[^1] = aging with { PreviousState = LoanState.InGrace };
+
+        var replay = () => Loan.Rehydrate(history);
+
+        replay.Should().Throw<InvalidOperationException>();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Rehydrate_WriteOffWithDifferentTotalOrBalanceComponent_Throws(bool invalidTotal)
+    {
+        var loan = CreateLoan(LoanState.WrittenOff);
+        var history = loan.UncommittedEvents.ToArray();
+        var writeOff = (LoanWrittenOff)history[^1];
+        history[^1] = invalidTotal
+            ? writeOff with { WrittenOffBalance = Principal }
+            : writeOff with { CurrentInterest = Euro(0m) };
+
+        var replay = () => Loan.Rehydrate(history);
+
+        replay.Should().Throw<InvalidOperationException>();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Rehydrate_ExcessWithDifferentAmountOrContext_Throws(bool invalidAmount)
+    {
+        var loan = CreateLoan(LoanState.Active);
+        _ = loan.RecordPayment(Pay(Euro(10006.95m), Date("2026-01-20")), SamplePaymentId, Calculator).Value; // PA-09 and PO-06.
+        var history = loan.UncommittedEvents.ToArray();
+        var excess = (PaymentExcessRecorded)history[^2];
+        history[^2] = invalidAmount
+            ? excess with { Excess = Euro(0m) }
+            : excess with { Context = excess.Context with { CommandId = Guid.NewGuid() } };
+
+        var replay = () => Loan.Rehydrate(history);
+
+        replay.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
     public void MarkEventsCommitted_KeepsTheAppliedVersion()
     {
         var loan = CreateLoan(LoanState.Active);

@@ -34,6 +34,10 @@ public sealed class LoanTerminalTests
         var writeOff = loan.UncommittedEvents.OfType<LoanWrittenOff>().Single();
         writeOff.Context.Should().Be(posting.Context);
         writeOff.Reason.Should().Be(command.Reason);
+        writeOff.RemainingPrincipal.Should().Be(Principal);
+        writeOff.PastDueInterest.Should().Be(Euro(41.67m));
+        writeOff.CurrentInterest.Should().Be(Euro(1.39m));
+        writeOff.FeesOutstanding.Should().Be(Euro(0m));
         writeOff.WrittenOffBalance.Should().Be(Euro(10043.06m));
     }
 
@@ -46,8 +50,13 @@ public sealed class LoanTerminalTests
 
         loan.WriteOff(WriteOffAt(FirstDueDate), Calculator).IsSuccess.Should().BeTrue();
 
-        loan.UncommittedEvents.Should().ContainSingle().Which.Should().BeOfType<LoanWrittenOff>()
-            .Which.WrittenOffBalance.Should().Be(Euro(10041.67m)); // PO-03.
+        // PO-03 provides the balance even when the posting belongs to an earlier command.
+        var writeOff = loan.UncommittedEvents.Should().ContainSingle().Which.Should().BeOfType<LoanWrittenOff>().Which;
+        writeOff.RemainingPrincipal.Should().Be(Principal);
+        writeOff.PastDueInterest.Should().Be(Euro(0m));
+        writeOff.CurrentInterest.Should().Be(Euro(41.67m));
+        writeOff.FeesOutstanding.Should().Be(Euro(0m));
+        writeOff.WrittenOffBalance.Should().Be(Euro(10041.67m));
     }
 
     [Fact]

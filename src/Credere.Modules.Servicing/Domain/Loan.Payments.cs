@@ -57,6 +57,11 @@ internal sealed partial class Loan
     internal Result<PayoffQuote, DomainError> QuotePayoff(QuotePayoff query, IInterestCalculator calculator)
     {
         CheckId(query.Id);
+        if (!CanPay)
+        {
+            return Invalid<PayoffQuote>(nameof(QuotePayoff));
+        }
+
         var amounts = CalculatePayoff(query.PayoffDate, _interest, calculator);
         return amounts.Map(value => new PayoffQuote(
             Id, query.PayoffDate, value.Principal, value.PastDueInterest, value.CurrentInterest, value.Fees, value.Total));
@@ -113,7 +118,8 @@ internal sealed partial class Loan
         var balance = OutstandingTotal(projection.Position);
         var context = Context(command.BusinessDate, command.CommandId, command.CorrelationId);
         PostAccrual(context, projection);
-        Raise(new LoanWrittenOff(context, command.Reason, balance));
+        Raise(new LoanWrittenOff(
+            context, command.Reason, RemainingPrincipal, PastDueInterest, CurrentInterest, FeesOutstanding, balance));
         return Success();
     }
 

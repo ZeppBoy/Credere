@@ -105,11 +105,12 @@ Any other `(state, command)` pair returns `Result<Unit, DomainError>.Failure(new
 These rules are the owner's decision D3 ([ADR-0011](../adr/0011-m2-module-contracts.md)).
 
 - **Eligibility.** Ordinary payments are accepted in `Active`, `InGrace` and `PastDue`. Payments on a `Defaulted` loan are **not decided** (see [Not decided](#not-decided)); until then they return `InvalidStateTransition`.
+- **Payoff quotes.** Quoting and executing a payoff both require `Active`, `InGrace` or `PastDue`. Other states return `InvalidStateTransition`.
 - **Overpayment.** A positive overpayment on an eligible loan is allowed. The payment is allocated through `PaymentAllocationWaterfall` ([payment-allocation.md](payment-allocation.md)) after interest has been accrued to the payment's effective date. Whatever the waterfall cannot place is the `Excess`.
 - **Excess implies payoff.** `Excess > 0` only happens when all four balances reach zero, so such a payment always moves the loan to `PaidOff`. The excess is recorded for return: it is in the `PaymentRecorded` payload and in its own `PaymentExcessRecorded` event, and the loan keeps no credit balance. The return of the money to the payer is a treasury process outside M2.
 - **Backdating.** `EffectiveDate` earlier than `AccruedThroughDate` is a `ValidationError` on `effectiveDate`.
 - **Accrual order.** `RecordPayment`, `ExecutePayoff`, and `WriteOff` accrue through their effective date before recording the outcome. If the date advances accrual, an internal `InterestAccrued` event comes first and supplies the ledger posting. Eligibility, inputs, and payoff quote revalidation must succeed before the events are appended. [Servicing accrual rules](../modules/servicing.md#interest-accrual-and-posting)
-- **Write-off.** A date before `AccruedThroughDate` returns `ValidationError` on `businessDate`. The write-off reports the full outstanding balance after accrual, including principal, both interest balances, and fees. The terminal record retains those components for audit. [Owner decision on M2-04](https://github.com/ZeppBoy/Credere/issues/71#issuecomment-7216076988)
+- **Write-off.** A date before `AccruedThroughDate` returns `ValidationError` on `businessDate`. The domain event records the outstanding principal, both interest balances, fees, and their total after accrual. The aggregate retains those balances for audit. [Owner decision on M2-04](https://github.com/ZeppBoy/Credere/issues/71#issuecomment-7216076988)
 - **Fees.** M2 posts no fees, so `FeesOutstanding` is zero on every M2 loan. The field exists so that the waterfall is the full waterfall from the first slice.
 
 ## Thresholds

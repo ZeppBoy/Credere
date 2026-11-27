@@ -104,6 +104,10 @@ internal sealed partial class Loan
         LoanWrittenOff writeOff => State == LoanState.Defaulted
             && writeOff.Context.EffectiveDate == AccruedThroughDate
             && !string.IsNullOrWhiteSpace(writeOff.Reason)
+            && writeOff.RemainingPrincipal == RemainingPrincipal
+            && writeOff.PastDueInterest == PastDueInterest
+            && writeOff.CurrentInterest == CurrentInterest
+            && writeOff.FeesOutstanding == FeesOutstanding
             && writeOff.WrittenOffBalance == OutstandingTotal(_interest),
         LoanRestructured restructure => State == LoanState.Defaulted && !string.IsNullOrWhiteSpace(restructure.Plan),
         LoanRecovered recover => State == LoanState.Defaulted

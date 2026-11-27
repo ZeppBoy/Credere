@@ -206,4 +206,22 @@ public sealed class LoanPaymentTests
             .Error.Should().BeOfType<ValidationError>().Which.Field.Should().Be("payoffDate");
         loan.UncommittedEvents.Should().BeEmpty();
     }
+
+    [Theory]
+    [InlineData(LoanState.Disbursed)]
+    [InlineData(LoanState.Defaulted)]
+    [InlineData(LoanState.PaidOff)]
+    [InlineData(LoanState.WrittenOff)]
+    [InlineData(LoanState.Restructured)]
+    [InlineData(LoanState.Recovered)]
+    public void QuotePayoff_IneligibleState_ReturnsInvalidStateTransition(LoanState state)
+    {
+        var loan = CreateLoan(state);
+        loan.MarkEventsCommitted();
+
+        loan.QuotePayoff(new QuotePayoff(Id, loan.AccruedThroughDate), Calculator)
+            .Error.Should().BeOfType<InvalidStateTransition>();
+
+        loan.UncommittedEvents.Should().BeEmpty();
+    }
 }
