@@ -1,0 +1,5 @@
+# Everything in this folder is written by `dotnet ef migrations add` and is regenerated, never hand-edited
+# (AGENTS.md section 10). Tell the compiler so, so style analyzers skip it, and keep the byte order mark EF writes.
+[*.cs]
+generated_code = true
+charset = utf-8-bom
